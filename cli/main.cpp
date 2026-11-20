@@ -30,7 +30,7 @@ using feather::severityName;
 
 namespace {
 
-constexpr const char* kVersion = "0.1.0";
+constexpr const char* kVersion = "0.2.0";
 
 struct Options {
     std::wstring command;
@@ -39,6 +39,7 @@ struct Options {
     fs::path allowFile;
     fs::path cacheFile;
     fs::path jsonFile;
+    std::optional<feather::ClamAvEndpoint> clamd;
     unsigned threads = 0;
     bool all = false;
     bool quiet = false;
@@ -50,6 +51,23 @@ struct Options {
 std::string toUtf8(const fs::path& p) {
     const std::u8string u8 = p.u8string();
     return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+}
+
+bool parseEndpoint(const fs::path& text, feather::ClamAvEndpoint& out) {
+    const std::string s = toUtf8(text);
+    const std::size_t colon = s.rfind(':');
+    if (colon == std::string::npos || colon == 0 || colon + 1 >= s.size()) {
+        return false;
+    }
+    out.host = s.substr(0, colon);
+    try {
+        const unsigned long port = std::stoul(s.substr(colon + 1));
+        if (port == 0 || port > 65535) return false;
+        out.port = static_cast<std::uint16_t>(port);
+    } catch (...) {
+        return false;
+    }
+    return true;
 }
 
 fs::path defaultCachePath() {
@@ -81,6 +99,7 @@ void printUsage() {
         "  --cache <file>   hash cache location (default: user profile)\n"
         "  --no-cache       do not read or write the cache\n"
         "  --json <file>    write findings as JSON\n"
+        "  --clamd <host:port>  add a local clamd (ClamAV) as a source\n"
         "  --threads <n>    worker threads (default: CPU count)\n"
         "  --all            also list info-level and allowed findings\n"
         "  --quiet          no progress output\n"
@@ -115,6 +134,15 @@ bool parseArgs(const std::vector<std::wstring>& args, Options& o,
             if (!value(o.cacheFile)) { err = "--cache needs a file"; return false; }
         } else if (a == L"--json") {
             if (!value(o.jsonFile)) { err = "--json needs a file"; return false; }
+        } else if (a == L"--clamd") {
+            fs::path endpoint;
+            if (!value(endpoint)) { err = "--clamd needs host:port"; return false; }
+            feather::ClamAvEndpoint parsed;
+            if (!parseEndpoint(endpoint, parsed)) {
+                err = "--clamd expects host:port";
+                return false;
+            }
+            o.clamd = parsed;
         } else if (a == L"--threads") {
             if (i + 1 >= args.size()) { err = "--threads needs a number"; return false; }
             try {
@@ -201,11 +229,18 @@ std::string findingJson(const Finding& f) {
     out += ",";
     out += "\"error\":";
     out += f.error.empty() ? "null" : ("\"" + jsonEscape(f.error) + "\"");
+    out += ",\"warnings\":[";
+    for (std::size_t i = 0; i < f.warnings.size(); ++i) {
+        if (i > 0) out += ",";
+        out += "\"" + jsonEscape(f.warnings[i]) + "\"";
+    }
+    out += "]";
     out += ",\"hits\":[";
     for (std::size_t i = 0; i < f.hits.size(); ++i) {
         const auto& h = f.hits[i];
         if (i > 0) out += ",";
-        out += "{\"id\":\"" + jsonEscape(h.id) + "\",\"severity\":\"" +
+        out += "{\"source\":\"" + jsonEscape(h.source) + "\",\"id\":\"" +
+               jsonEscape(h.id) + "\",\"severity\":\"" +
                severityName(h.severity) + "\",\"weight\":" +
                std::to_string(h.weight) + ",\"detail\":\"" +
                jsonEscape(h.detail) + "\"}";
@@ -216,6 +251,7 @@ std::string findingJson(const Finding& f) {
 
 bool shouldReport(const Finding& f, bool all) {
     if (!f.error.empty()) return true;
+    if (!f.warnings.empty()) return true;
     const Severity v = f.effectiveVerdict();
     if (v == Severity::Malicious || v == Severity::Unwanted) return true;
     if (all && (v != Severity::None || !f.hits.empty())) return true;
@@ -238,8 +274,11 @@ void printFindingText(const Finding& f) {
         std::cout << "    excluded: " << f.suppressionReason << "\n";
     }
     for (const auto& h : f.hits) {
-        std::cout << "    - " << h.id << " (" << severityName(h.severity)
-                  << "): " << h.detail << "\n";
+        std::cout << "    - [" << h.source << "] " << h.id << " ("
+                  << severityName(h.severity) << "): " << h.detail << "\n";
+    }
+    for (const auto& w : f.warnings) {
+        std::cout << "    warning: " << w << "\n";
     }
 }
 
@@ -326,7 +365,12 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     // ---- scan -------------------------------------------------------------
-    const Engine engine(ioc, exclusions, EngineOptions{});
+    feather::EngineConfig engineConfig;
+    engineConfig.ioc = std::move(ioc);
+    engineConfig.exclusions = std::move(exclusions);
+    engineConfig.clamd = opt.clamd;
+    const Engine engine(std::move(engineConfig));
+    const std::string cacheScope = engine.sourceScope();
 
     std::vector<Finding> results(files.size());
     std::vector<std::optional<feather::cli::CacheEntry>> pending(files.size());
@@ -356,7 +400,7 @@ int wmain(int argc, wchar_t** argv) {
                 const std::string key = toUtf8(path);
                 const auto mtime = static_cast<std::int64_t>(
                     mtimeNow.time_since_epoch().count());
-                if (const auto* entry = cache.find(key);
+                if (const auto* entry = cache.find(key, cacheScope);
                     entry != nullptr && entry->size == sizeNow &&
                     entry->mtime == mtime) {
                     Finding cached;
@@ -365,6 +409,13 @@ int wmain(int argc, wchar_t** argv) {
                     cached.sha256 = entry->sha256;
                     cached.verdict = static_cast<Severity>(entry->verdict);
                     cached.cached = true;
+
+                    // Exclusions can change between runs, so re-apply them to
+                    // cached verdicts instead of trusting the cached state.
+                    if (feather::Sha256::fromHex(entry->sha256, cached.digest)) {
+                        engine.applyExclusions(cached);
+                    }
+
                     results[i] = std::move(cached);
                     finished.fetch_add(1, std::memory_order_relaxed);
                     continue;
@@ -380,6 +431,7 @@ int wmain(int argc, wchar_t** argv) {
                     mtimeNow.time_since_epoch().count());
                 entry.sha256 = finding.sha256;
                 entry.verdict = static_cast<int>(finding.verdict);
+                entry.sources = cacheScope;
                 pending[i] = std::move(entry);
             }
 

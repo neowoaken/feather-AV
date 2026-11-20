@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace feather {
 
@@ -21,6 +22,7 @@ public:
 
     static Digest hash(std::span<const std::uint8_t> data);
     static std::string hex(const Digest& digest);
+    static bool fromHex(std::string_view hex, Digest& out);
 
 private:
     void reset();

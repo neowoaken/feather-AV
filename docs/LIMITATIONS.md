@@ -55,6 +55,21 @@ that `malicious` can stay quiet.
 - Files locked by another process with no read sharing are reported as errors,
   not scanned.
 
+## The optional ClamAV adapter
+
+- Requires a **separate** ClamAV installation and a running `clamd`. feather
+  does not bundle it, download it, or start it.
+- Coverage is broad but shallow: ClamAV's database is huge and heavily weighted
+  toward known families. It is weak against modern packed, scripted and
+  signed malware — do not read "clamd said OK" as safe.
+- Each file is read twice when ClamAV is enabled: once for hashing, once for the
+  clamd stream. Cached files skip both.
+- If `clamd` is unreachable or times out, files are still scanned by the local
+  sources and the failure appears as a per-file warning. It never becomes a
+  silent "clean".
+- ClamAV's PUA/HackTool/Heuristic detections are deliberately downgraded to
+  `unwanted`. A named trojan family stays `malicious`.
+
 ## Security of the tool itself
 
 - No code signing. Windows SmartScreen and Defender may flag the built binary,

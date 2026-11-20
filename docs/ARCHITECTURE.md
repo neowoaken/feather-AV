@@ -4,7 +4,7 @@
                  +-----------------------------+
                  |        feather_engine       |
                  |  portable C++20, no OS APIs |
-                 |  hash / PE / IOC / verdict  |
+                 |  hash / PE / fusion         |
                  +--------------+--------------+
                                 |
         +-----------------------+------------------------+
@@ -14,6 +14,13 @@
    | scanner |           |  (planned)   |          |  (planned)  |
    | C++/std |           |   C++ / COM  |          |   C / WDK   |
    +---------+           +--------------+          +-------------+
+
+Detection sources (behind the engine):
+
+   rules/     built-in static heuristics
+   ioc/       known-bad SHA-256 database
+   clamav/    optional clamd client (socket, no libclamav)
+   yara/      planned
 ```
 
 ## Modules
@@ -24,26 +31,35 @@
 | `engine/pe.*` | Bounds-checked PE parser: sections, entropy, imports, exports, overlay, Authenticode presence. Never executes or maps anything. |
 | `engine/ioc.*` | Hash-only known-bad database. |
 | `engine/exclusions.*` | User tolerance list (hash or path glob). Cannot override `malicious`. |
-| `engine/engine.*` | Rule evaluation, verdict aggregation, per-file analysis. |
+| `engine/engine.*` | Orchestrator: hash once, parse PE once, run sources, fuse, apply exclusions. |
+| `sources/source.h` | `FileFacts`, `SignalSource`, `SourceResult` — the adapter contract. |
+| `sources/rules_source.*` | Built-in heuristics. |
+| `sources/ioc_source.*` | Hash lookup. |
+| `sources/clamav_source.*` | clamd `INSTREAM` client and ClamAV-to-tier classification. |
+| `verdict/signal.h` | `Severity` and `Signal` — the only thing sources may produce. |
+| `verdict/fusion.h` | Aggregation: strongest signal wins. |
 | `cli/walk.*` | File enumeration. Does not follow directory symlinks. |
-| `cli/cache.*` | `(path, size, mtime) -> (sha256, verdict)` cache. |
+| `cli/cache.*` | `(path, size, mtime, source scope) -> (sha256, verdict)` cache. |
 | `cli/main.cpp` | Argument parsing, thread pool, text/JSON reporting. |
 
 ## Invariants
 
 These are enforced by review, and breaking them is a bug:
 
-1. **No detection logic outside `engine/`.** The CLI prints, the cache stores,
-   the driver (later) senses. None of them decide.
-2. **No OS dependency in `engine/`.** It must build on Linux for CI and tests,
-   even though the product is Windows-only.
-3. **Engine API is a pure function of a file path.** `Engine::analyze` reads the
-   file and returns a `Finding`. No globals, no mutable state, safe to call from
-   many threads (the engine holds immutable databases).
-4. **Every rule produces a `RuleHit` with an id and a reason.** No anonymous
+1. **No detection logic outside `sources/` and `verdict/`.** The CLI prints, the
+   cache stores, the driver (later) senses. None of them decide.
+2. **Sources never decide a verdict.** They emit `Signal`s. Fusion owns the
+   tier. This is what makes reclassification of third-party engines possible.
+3. **No OS dependency in `engine/` or `verdict/`** beyond `std::filesystem`. It
+   must build on Linux for CI and tests, even though the product is
+   Windows-only.
+4. **`Engine::analyze` is a pure function of a file path.** No globals, safe to
+   call from many threads (the engine holds immutable databases; the ClamAV
+   source opens one connection per file).
+5. **A failing source never fails the file.** It becomes a warning; the other
+   sources still run.
+6. **Every rule produces a `Signal` with an id and a reason.** No anonymous
    booleans, no silent verdicts.
-5. **The driver never gets a bypass path.** If the engine cannot inspect
-   something, it says so; it does not guess.
 
 ## Scan pipeline
 
@@ -51,7 +67,8 @@ These are enforced by review, and breaking them is a bug:
 enumerate -> [cache hit? reuse verdict]
           -> stream file through SHA-256
           -> read bounded prefix, parse PE
-          -> evaluate rules -> severity
+          -> run every source -> signals
+          -> fuse (strongest signal wins)
           -> apply exclusions (unless malicious)
           -> cache write
           -> report
@@ -67,7 +84,9 @@ tables live.
 A fixed pool of `std::thread` workers pulls indices from an atomic counter.
 Results are written to a pre-sized vector, so there is no locking and output
 order is deterministic. The cache is read concurrently (immutable during the
-scan) and written single-threaded afterwards.
+scan) and written single-threaded afterwards. The ClamAV source opens one socket
+per file and closes it immediately, so no shared connection state exists across
+workers.
 
 ## Future: where the driver fits
 

@@ -12,8 +12,26 @@ info        structural oddity            -> display only
 clean       nothing known                -> silence
 ```
 
-A file's verdict is the **highest** severity among its rule hits. A file with no
-hits is `clean`.
+A file's verdict is the **highest** severity among its signals. A file with no
+signals is `clean`.
+
+Signals come from **sources** — `rules` (built-in heuristics), `ioc` (known-bad
+hashes), and optionally `clamav` (a local clamd daemon). Sources never pick the
+tier themselves; `verdict/fusion.h` takes the maximum. That indirection is what
+makes third-party engines usable without inheriting their judgement.
+
+## Third-party engine mapping
+
+ClamAV reports a signature name; feather translates it into a tier:
+
+| ClamAV signature | Tier | Reasoning |
+|---|---|---|
+| `PUA.*`, `Tool.*`, any name containing `HackTool` | `unwanted` | This is the "possibly unwanted" category feather refuses to condemn |
+| `Heuristics.*` | `unwanted` | A heuristic is a suspicion, not proof |
+| `Win.Trojan.*`, `Win.Ransomware.*`, `Eicar-*`, other named families | `malicious` | Named family detections are the strong signal signature engines are good at |
+
+If clamd is unreachable the file is still scanned by the other sources and the
+failure is reported as a per-file warning. Silence is never treated as "clean".
 
 ## Rule catalogue (v0.1)
 

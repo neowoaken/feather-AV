@@ -6,16 +6,58 @@ Most scanners collapse "this is a game fix" and "this is a stealer" into a singl
 red popup and delete both. feather keeps them apart, tells you what it actually
 found, and never deletes anything.
 
-> **Status: alpha.** The detection engine and CLI scanner work today. The
-> kernel driver does not exist yet — see [roadmap](#roadmap). This is a
-> scanner, not a full antivirus, and it is not a replacement for Defender.
+> **Status: alpha.** The detection engine, CLI scanner and the optional ClamAV
+> adapter work today. The kernel driver does not exist yet — see
+> [roadmap](#roadmap). This is a scanner, not a full antivirus, and it is not a
+> replacement for Defender.
 
-## The verdict model
+## Architecture: sources in, one verdict out
+
+```
+sources/                 each source is an adapter, not a decider
+  rules/                 built-in static heuristics
+  ioc/                   known-bad SHA-256 lookup
+  clamav/                optional clamd client (INSTREAM over TCP)
+        |
+        v  Signal{ source, id, severity, detail }
+verdict/fusion            strongest signal wins; exclusions applied
+        |
+        v
+     Finding              one file, one tier, every reason attached
+```
+
+No source controls the verdict. That is what lets ClamAV's
+`PUA.HackTool.*` signatures become `unwanted` without touching ClamAV itself:
+
+| ClamAV signature | feather tier |
+|---|---|
+| `PUA.*`, `Tool.*`, contains `HackTool` | `unwanted` |
+| `Heuristics.*` | `unwanted` |
+| `Win.Trojan.*`, `Win.Ransomware.*`, `Eicar-*`, everything else | `malicious` |
+
+If a source fails (clamd is down, a socket times out), the file is still
+scanned by the other sources, and the failure is reported as a per-file
+warning. It never silently becomes "clean".
+
+### Using ClamAV
+
+Install ClamAV separately and run `clamd`; feather never bundles it (ClamAV is
+GPL-2.0, feather is MIT, and keeping them as separate programs keeps that
+boundary honest):
+
+```powershell
+.\build\Release\feather.exe scan C:\Downloads --clamd 127.0.0.1:3310
+```
+
+That gives you ClamAV's signature coverage and feather's classification. Replacing
+a ClamAV PUA deletion with a warning is the whole point.
+
+## Verdict model
 
 | Verdict | Meaning | Example | Suggested action |
-|---|---|---|---|
-| `malicious` | known-bad SHA-256, or filename spoofing | stealer, miner, ransomware | block |
-| `unwanted` | holds a **capability** associated with malware, but that capability is not proof | process injector, memory dumper, double extension | warn, you decide |
+| --- | --- | --- | --- |
+| `malicious` | known-bad SHA-256, spoofed filename, or a named malware family from ClamAV | stealer, miner, ransomware | block |
+| `unwanted` | holds a **capability** associated with malware, but that capability is not proof | process injector, memory dumper, ClamAV PUA/HackTool, double extension | warn, you decide |
 | `info` | structural oddity worth noting | packed/high-entropy section, large overlay | note only |
 | `clean` | nothing known | — | — |
 
@@ -107,8 +149,10 @@ probably quarantine the file first; that is expected.
 
 - [x] Detection engine: hashing, PE parsing, verdict tiers, exclusions
 - [x] CLI scanner with cache and JSON output
+- [x] Fusion layer: sources emit signals, one verdict comes out
+- [x] ClamAV adapter over clamd (optional, no GPL code in this repo)
 - [ ] MFT/USN enumeration for fast full-disk scans
-- [ ] YARA rule support (optional, loaded at runtime)
+- [ ] YARA adapter (libyara, per-rule severity in metadata)
 - [ ] AMSI provider for script coverage (`IAntimalwareProvider`) — no driver needed
 - [ ] On-access minifilter (C, WDK, signed) — calls the same engine
 - [ ] ETW-TI behavioural sensor (requires signing + MVI registration)
@@ -130,3 +174,7 @@ make an informed decision about software they already have.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+The optional ClamAV adapter talks to a `clamd` daemon over a socket; it does not
+link `libclamav` or bundle ClamAV, which is GPL-2.0. You install and license
+ClamAV separately. That keeps this repository MIT, and keeps ClamAV optional.

@@ -147,4 +147,23 @@ std::string Sha256::hex(const Digest& digest) {
     return out;
 }
 
+bool Sha256::fromHex(std::string_view text, Digest& out) {
+    if (text.size() != 64) return false;
+
+    auto nibble = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        const int hi = nibble(text[i * 2]);
+        const int lo = nibble(text[i * 2 + 1]);
+        if (hi < 0 || lo < 0) return false;
+        out[i] = static_cast<std::uint8_t>((hi << 4) | lo);
+    }
+    return true;
+}
+
 } // namespace feather

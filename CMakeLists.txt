@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(feather VERSION 0.1.0 LANGUAGES CXX)
+project(feather VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,8 +22,16 @@ add_library(feather_engine STATIC
   engine/ioc.cpp
   engine/exclusions.cpp
   engine/engine.cpp
+  verdict/signal.cpp
+  sources/ioc_source.cpp
+  sources/rules_source.cpp
+  sources/clamav_source.cpp
 )
 target_include_directories(feather_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+if(WIN32)
+  target_link_libraries(feather_engine PUBLIC ws2_32)
+endif()
 
 # ---------------------------------------------------------------------------
 # feather: user-mode CLI scanner

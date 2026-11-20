@@ -18,3 +18,6 @@ jobs:
 
       - name: Smoke test
         run: pwsh -File tests/smoke.ps1
+
+      - name: ClamAV adapter test (mock clamd)
+        run: pwsh -File tests/clamd.ps1

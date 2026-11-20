@@ -3,21 +3,22 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "engine/exclusions.h"
 #include "engine/ioc.h"
 #include "engine/pe.h"
-#include "engine/sha256.h"
+#include "sources/clamav_source.h"
+#include "sources/source.h"
+#include "verdict/signal.h"
 
 namespace feather {
 
-enum class Severity { None = 0, Info = 1, Unwanted = 2, Malicious = 3 };
-
-const char* severityName(Severity severity);
-
 struct RuleHit {
+    std::string source;  // which source produced this signal
     std::string id;
     Severity severity = Severity::Info;
     int weight = 0;
@@ -32,6 +33,9 @@ struct Finding {
 
     Severity verdict = Severity::None;
     std::vector<RuleHit> hits;
+
+    // Sources that failed for this file. Non-fatal: other sources still ran.
+    std::vector<std::string> warnings;
 
     // Set when a user exclusion covered this file. Suppression is never
     // applied to a Malicious verdict; see exclusions.h.
@@ -55,19 +59,38 @@ struct EngineOptions {
     std::size_t peReadLimit = 32u << 20;
 };
 
+struct EngineConfig {
+    IocDatabase ioc;
+    Exclusions exclusions;
+    std::optional<ClamAvEndpoint> clamd;  // nullopt = ClamAV disabled
+    EngineOptions options{};
+};
+
+// Orchestrator: hashes once, parses PE once, feeds the facts to every
+// configured source, then fuses the signals into a single verdict.
 class Engine {
 public:
-    Engine() = default;
-    Engine(IocDatabase ioc, Exclusions exclusions, EngineOptions options = {});
+    explicit Engine(EngineConfig config = {});
 
     Finding analyze(const std::filesystem::path& path) const;
+
+    // Applies user exclusions to an already-analysed finding. Exposed so the
+    // CLI can re-apply them to cache hits without re-reading the file.
+    void applyExclusions(Finding& finding) const;
+
+    // Identifies the active source set ("rules+ioc", "rules+ioc+clamav@host:port").
+    // Cached verdicts are only valid for the same source set: a file cached
+    // before ClamAV was enabled must not skip ClamAV afterwards.
+    const std::string& sourceScope() const { return scope_; }
 
     const EngineOptions& options() const { return options_; }
 
 private:
-    IocDatabase ioc_;
+    EngineConfig config_;
+    std::vector<std::unique_ptr<SignalSource>> sources_;
     Exclusions exclusions_;
     EngineOptions options_{};
+    std::string scope_;
 };
 
 } // namespace feather
