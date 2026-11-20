@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.3
+
+### Changed
+
+- **Dashboard-style home screen** modeled on the reference image, but adapted
+  to what feather actually does: Quick Scan card, Protection Advisor, Security
+  Status and Protection Updates. No fake real-time or ransomware claims.
+- Navigation renamed to Dashboard / Scan / Quarantine / Categories / Settings.
+- The supplied Feather AV logo is now shipped with the app and shown in the
+  sidebar.
+- Scan now starts from the Dashboard with one click (drive C by default); the
+  Scan page keeps the "..." menu for a specific folder.
+- Full dark theme with cyan accent, cards and subtle shadows.
+
 ## 0.3.2
 
 ### Changed

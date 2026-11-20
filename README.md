@@ -43,7 +43,7 @@ verdict/fusion            strongest signal wins; exclusions applied
      Finding              one file, one tier, one category, every reason attached
         |
         +--> CLI          text / JSON
-        +--> GUI          WinForms: checkbox per finding, category policy
+        +--> GUI          WPF dashboard: checkbox per finding, category policy
 ```
 
 No source controls the verdict. That is what lets ClamAV's
@@ -146,7 +146,7 @@ powershell -ExecutionPolicy Bypass -File installer/build.ps1
 
 Requires Inno Setup 6 (installed automatically by the script's lookup; if
 missing, install with `winget install JRSoftware.InnoSetup`). Output:
-`installer/output/feather-setup-0.3.0.exe` (~46 MB, self-contained).
+`installer/output/feather-setup-0.3.3.exe` (~46 MB, self-contained).
 
 ## Use
 
@@ -175,12 +175,18 @@ does not reuse pre-ClamAV results.
 gui\bin\Release\net8.0-windows\Feather.exe
 ```
 
-Scan a folder, tick what you want gone, choose `Quarantine checked` or
-`Allow checked`. The `Categories` tab is where "Adware: auto-select,
-HackTool: ask me" is configured; it writes
+The **Dashboard** opens to a Quick Scan card, Protection Advisor and Security
+Status panels, and Protection Updates. Click **Scan** there to scan drive C
+immediately. The **Scan** page has the same big Scan button plus a `...` menu
+for a specific folder. Tick what you want gone, then choose
+`Quarantine selected` or `Allow selected`. The `Categories` tab is where
+"Adware: auto-select, HackTool: ask me" is configured; it writes
 `%LOCALAPPDATA%\Feather\policy.json`. Allow-listed hashes go to
 `%LOCALAPPDATA%\Feather\allow.txt`, which is the same file format the CLI takes
 with `--allow`.
+
+Feather AV is an on-demand classifier: the dashboard never claims real-time,
+ransomware or web protection that this build does not provide.
 
 ### Quarantine from the CLI
 

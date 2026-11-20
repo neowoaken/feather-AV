@@ -5,46 +5,39 @@
     <Application.Resources>
         <ResourceDictionary>
 
-            <!-- =
-                 Palette: dark, blue accent. Inspired by modern scanner UIs
-                 (Malwarebytes / PitchBlack): calm surfaces, one accent color,
-                 severity colors that carry meaning.
-                 -->
-            <Color x:Key="BgColor">#FFF0F2F6</Color>
-            <Color x:Key="SurfaceColor">#FFFFFFFF</Color>
-            <Color x:Key="SidebarColor">#FF10151D</Color>
-            <Color x:Key="SidebarHoverColor">#FF1B2330</Color>
-            <Color x:Key="SidebarActiveColor">#FF223047</Color>
-            <Color x:Key="BorderColor">#FFE2E7EE</Color>
-            <Color x:Key="TextColor">#FF141A22</Color>
-            <Color x:Key="MutedColor">#FF6B7686</Color>
-            <Color x:Key="AccentColor">#FF2F6FED</Color>
-            <Color x:Key="AccentHoverColor">#FF2559C4</Color>
-            <Color x:Key="MaliciousColor">#FFE5484D</Color>
-            <Color x:Key="UnwantedColor">#FFF5A524</Color>
-            <Color x:Key="InfoColor">#FF3B82F6</Color>
-            <Color x:Key="CleanColor">#FF30A46C</Color>
+            <!-- Dark palette inspired by the reference dashboard. -->
+            <Color x:Key="AppBgColor">#FF191A1C</Color>
+            <Color x:Key="SidebarColor">#FF121316</Color>
+            <Color x:Key="SurfaceColor">#FF232426</Color>
+            <Color x:Key="SurfaceAltColor">#FF1E1F22</Color>
+            <Color x:Key="SidebarActiveColor">#FF1C2A36</Color>
+            <Color x:Key="BorderColor">#FF34363B</Color>
+            <Color x:Key="TextColor">#FFF3F5F7</Color>
+            <Color x:Key="MutedColor">#FF9AA0AA</Color>
+            <Color x:Key="AccentColor">#FF4EACE9</Color>
+            <Color x:Key="AccentDarkColor">#FF2D7FB5</Color>
+            <Color x:Key="AccentGlowColor">#FF62D3E5</Color>
+            <Color x:Key="DangerColor">#FFE5484D</Color>
+            <Color x:Key="WarnColor">#FFF5A524</Color>
+            <Color x:Key="SuccessColor">#FF30A46C</Color>
 
-            <SolidColorBrush x:Key="BgBrush" Color="{StaticResource BgColor}"/>
-            <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}"/>
+            <SolidColorBrush x:Key="AppBgBrush" Color="{StaticResource AppBgColor}"/>
             <SolidColorBrush x:Key="SidebarBrush" Color="{StaticResource SidebarColor}"/>
-            <SolidColorBrush x:Key="SidebarHoverBrush" Color="{StaticResource SidebarHoverColor}"/>
+            <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}"/>
+            <SolidColorBrush x:Key="SurfaceAltBrush" Color="{StaticResource SurfaceAltColor}"/>
             <SolidColorBrush x:Key="SidebarActiveBrush" Color="{StaticResource SidebarActiveColor}"/>
             <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}"/>
             <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}"/>
             <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedColor}"/>
             <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
-            <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}"/>
-            <SolidColorBrush x:Key="MaliciousBrush" Color="{StaticResource MaliciousColor}"/>
-            <SolidColorBrush x:Key="UnwantedBrush" Color="{StaticResource UnwantedColor}"/>
-            <SolidColorBrush x:Key="InfoBrush" Color="{StaticResource InfoColor}"/>
-            <SolidColorBrush x:Key="CleanBrush" Color="{StaticResource CleanColor}"/>
+            <SolidColorBrush x:Key="AccentDarkBrush" Color="{StaticResource AccentDarkColor}"/>
+            <SolidColorBrush x:Key="AccentGlowBrush" Color="{StaticResource AccentGlowColor}"/>
+            <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}"/>
+            <SolidColorBrush x:Key="WarnBrush" Color="{StaticResource WarnColor}"/>
+            <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}"/>
 
             <FontFamily x:Key="UiFont">Segoe UI, Segoe UI Variable, Arial</FontFamily>
 
-            <!-- =
-                 Base controls
-                 -->
             <Style TargetType="TextBlock">
                 <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
                 <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
@@ -54,10 +47,17 @@
 
             <Style x:Key="MutedText" TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+                <Setter Property="FontSize" Value="12.5"/>
+                <Setter Property="TextWrapping" Value="Wrap"/>
             </Style>
 
             <Style x:Key="PageTitle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="24"/>
+                <Setter Property="FontSize" Value="28"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+            </Style>
+
+            <Style x:Key="SectionTitle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="16"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
             </Style>
 
@@ -65,11 +65,16 @@
                 <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="CornerRadius" Value="12"/>
-                <Setter Property="Padding" Value="18"/>
+                <Setter Property="CornerRadius" Value="14"/>
+                <Setter Property="Padding" Value="20"/>
+                <Setter Property="Effect">
+                    <Setter.Value>
+                        <DropShadowEffect BlurRadius="20" ShadowDepth="0" Direction="270"
+                                          Color="#CC000000" Opacity="0.22"/>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
-            <!-- Buttons -->
             <Style x:Key="ButtonBase" TargetType="Button">
                 <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
                 <Setter Property="FontSize" Value="13"/>
@@ -78,7 +83,7 @@
                 <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="Padding" Value="14,9"/>
+                <Setter Property="Padding" Value="15,10"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Template">
                     <Setter.Value>
@@ -94,7 +99,7 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="#FFF3F5F9"/>
+                                    <Setter TargetName="Bd" Property="Background" Value="#FF2D2F34"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
@@ -108,7 +113,7 @@
             <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
                 <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
-                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="Foreground" Value="#FF0B1218"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
@@ -124,7 +129,7 @@
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="Bd" Property="Background"
-                                            Value="{StaticResource AccentHoverBrush}"/>
+                                            Value="{StaticResource AccentGlowBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
@@ -135,22 +140,26 @@
                 </Setter>
             </Style>
 
-            <!-- Danger button (quarantine) -->
             <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
-                <Setter Property="Background" Value="{StaticResource MaliciousBrush}"/>
-                <Setter Property="BorderBrush" Value="{StaticResource MaliciousBrush}"/>
+                <Setter Property="Background" Value="{StaticResource DangerBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}"/>
                 <Setter Property="Foreground" Value="White"/>
             </Style>
 
-            <!-- Inputs -->
+            <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+            </Style>
+
             <Style x:Key="TextBox" TargetType="TextBox">
                 <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
-                <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="Padding" Value="11,8"/>
+                <Setter Property="Padding" Value="11,9"/>
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="Template">
                     <Setter.Value>
@@ -161,8 +170,7 @@
                                     BorderThickness="{TemplateBinding BorderThickness}"
                                     CornerRadius="9"
                                     Padding="{TemplateBinding Padding}">
-                                <ScrollViewer x:Name="PART_ContentHost"
-                                              Margin="0"
+                                <ScrollViewer x:Name="PART_ContentHost" Margin="0"
                                               VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
@@ -176,29 +184,29 @@
                 </Setter>
             </Style>
 
-            <!-- Sidebar navigation button -->
             <Style x:Key="NavButton" TargetType="Button">
                 <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
                 <Setter Property="FontSize" Value="14"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
-                <Setter Property="Foreground" Value="#FFB9C2D0"/>
+                <Setter Property="Foreground" Value="#FFA8AFBA"/>
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="Bd"
                                     Background="{TemplateBinding Background}"
-                                    CornerRadius="9"
-                                    Padding="14,11">
-                                <ContentPresenter VerticalAlignment="Center"/>
+                                    CornerRadius="10"
+                                    Padding="14,12">
+                                <ContentPresenter VerticalAlignment="Center"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background"
-                                            Value="{StaticResource SidebarHoverBrush}"/>
+                                    <Setter TargetName="Bd" Property="Background" Value="#FF1E2025"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -206,53 +214,33 @@
                 </Setter>
             </Style>
 
-            <!-- Category badge -->
             <Style x:Key="Badge" TargetType="Border">
                 <Setter Property="CornerRadius" Value="6"/>
                 <Setter Property="Padding" Value="8,3"/>
                 <Setter Property="VerticalAlignment" Value="Center"/>
             </Style>
 
-            <!-- Results list: no chrome, cards separated -->
-            <Style x:Key="ResultsList" TargetType="ListView">
-                <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Padding" Value="0"/>
-                <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
-                <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
-                <Setter Property="VirtualizingStackPanel.IsVirtualizing" Value="True"/>
-                <Setter Property="VirtualizingStackPanel.VirtualizationMode" Value="Recycling"/>
+            <Style TargetType="CheckBox">
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+                <Setter Property="FontSize" Value="12.5"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
             </Style>
 
-            <Style TargetType="ListViewItem">
-                <Setter Property="Margin" Value="0,0,0,8"/>
-                <Setter Property="Padding" Value="0"/>
-                <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="ListViewItem">
-                            <ContentPresenter/>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
-            <!-- Progress bar -->
             <Style TargetType="ProgressBar">
-                <Setter Property="Height" Value="8"/>
-                <Setter Property="Background" Value="#FFE6EAF0"/>
+                <Setter Property="Height" Value="6"/>
+                <Setter Property="Background" Value="#FF2E3035"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ProgressBar">
-                            <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="3">
                                 <Grid>
                                     <Rectangle x:Name="PART_Track" Fill="Transparent"/>
-                                    <Rectangle x:Name="PART_Indicator"
-                                               HorizontalAlignment="Left"
+                                    <Rectangle x:Name="PART_Indicator" HorizontalAlignment="Left"
                                                Fill="{TemplateBinding Foreground}"
-                                               RadiusX="4" RadiusY="4"/>
+                                               RadiusX="3" RadiusY="3"/>
                                 </Grid>
                             </Border>
                         </ControlTemplate>
@@ -260,9 +248,8 @@
                 </Setter>
             </Style>
 
-            <!-- ScrollViewer scrollbars: thin -->
             <Style TargetType="ScrollBar">
-                <Setter Property="Width" Value="10"/>
+                <Setter Property="Width" Value="9"/>
                 <Setter Property="Background" Value="Transparent"/>
             </Style>
 

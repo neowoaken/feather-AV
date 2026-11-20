@@ -57,4 +57,4 @@ if (-not $iscc) { throw "ISCC.exe not found. Install Inno Setup 6." }
 & $iscc (Join-Path $root "installer/feather.iss")
 if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
 
-Write-Host "`nbuilt: installer/output/feather-setup-0.3.2.exe"
+Write-Host "`nbuilt: installer/output/feather-setup-0.3.3.exe"
