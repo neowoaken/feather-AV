@@ -11,7 +11,7 @@
       |                 |           |              |              |
  +----v----+     +------v------+ +--v--------+ +---v------+ +-----v------+
  |   CLI   |     |     GUI     | |    AMSI   | |minifilter| |  ETW-TI    |
- | scanner |     |  WinForms   | | (planned) | |(planned) | | (planned)  |
+ | scanner |     |     WPF     | | (planned) | |(planned) | | (planned)  |
  | C++/std |     |   .NET 8    | | C++ / COM | |  C / WDK | | user-mode  |
  +---------+     +-------------+ +-----------+ +----------+ +------------+
 
@@ -42,7 +42,7 @@ Detection sources (behind the engine):
 | `cli/cache.*` | `(path, size, mtime, source scope) -> (sha256, verdict)` cache. |
 | `cli/quarantine.*` | Copy-then-verify vault, manifest, restore. Never called by a scan. |
 | `cli/main.cpp` | Argument parsing, thread pool, text/JSON reporting, commands. |
-| `gui/` | WinForms front end. Parses the CLI's JSON and shells out for actions; contains no detection logic. |
+| `gui/` | WPF front end (.NET 8). Dark, Malwarebytes-inspired theme. Parses the CLI's JSON and shells out for actions; contains no detection logic. |
 
 ## Invariants
 

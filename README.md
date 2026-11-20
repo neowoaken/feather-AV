@@ -138,6 +138,16 @@ The binary lands in `build/Release/feather.exe`; the GUI in
 `build\Release`, `build\Debug` or on `PATH`; `File > Locate feather.exe`
 overrides that.
 
+### Building the installer
+
+```powershell
+powershell -ExecutionPolicy Bypass -File installer/build.ps1
+```
+
+Requires Inno Setup 6 (installed automatically by the script's lookup; if
+missing, install with `winget install JRSoftware.InnoSetup`). Output:
+`installer/output/feather-setup-0.3.0.exe` (~46 MB, self-contained).
+
 ## Use
 
 ```powershell
@@ -223,6 +233,7 @@ probably quarantine the file first; that is expected.
 - [x] Categories (`hacktool`, `adware`, `stealer`, ...) on every finding
 - [x] Explicit, copy-then-verify quarantine with restore
 - [x] Desktop GUI: pick from the unwanted, per-category preselect policy
+- [x] Shipping installer (Inno Setup, self-contained .NET 8)
 - [ ] YARA adapter (libyara, per-rule severity in metadata)
 - [ ] MFT/USN enumeration for fast full-disk scans
 - [ ] AMSI provider for script coverage (`IAntimalwareProvider`) — no driver needed

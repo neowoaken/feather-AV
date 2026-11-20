@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Text;
 using System.Text.Json;
 
@@ -28,6 +29,9 @@ public sealed class Scanner
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         for (int i = 0; i < 8 && dir != null; i++, dir = dir.Parent)
         {
+            // Installed layout: {app}\Feather.exe + {app}\bin\feather.exe.
+            candidates.Add(Path.Combine(dir.FullName, "bin", "feather.exe"));
+            // Development layout: gui\bin\...\Feather.exe + repo\build\Release\feather.exe.
             candidates.Add(Path.Combine(dir.FullName, "build", "Release", "feather.exe"));
             candidates.Add(Path.Combine(dir.FullName, "build", "Debug", "feather.exe"));
             candidates.Add(Path.Combine(dir.FullName, "feather.exe"));
@@ -103,6 +107,39 @@ public sealed class Scanner
             "--reason", "quarantined from Feather GUI"
         };
         var (exit, _, stderr) = await RunAsync(args, cancellationToken);
+        return (exit == 0, exit == 0 ? "" : stderr.Trim());
+    }
+
+    public async Task<List<QuarantineItem>> QuarantineListAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var jsonPath = Path.Combine(Path.GetTempPath(), $"feather-q-{Guid.NewGuid():N}.json");
+        try
+        {
+            var (exit, _, stderr) = await RunAsync(
+                new[] { "quarantine-list", "--json", jsonPath }, cancellationToken);
+            if (exit != 0)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(stderr) ? "quarantine-list failed" : stderr.Trim());
+            }
+            if (!File.Exists(jsonPath)) return new List<QuarantineItem>();
+            var json = await File.ReadAllTextAsync(jsonPath, cancellationToken);
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            return JsonSerializer.Deserialize<List<QuarantineItem>>(json, options)
+                   ?? new List<QuarantineItem>();
+        }
+        finally
+        {
+            try { File.Delete(jsonPath); } catch { }
+        }
+    }
+
+    public async Task<(bool Ok, string Message)> RestoreAsync(
+        string sha256, CancellationToken cancellationToken = default)
+    {
+        var (exit, _, stderr) = await RunAsync(
+            new[] { "restore", sha256 }, cancellationToken);
         return (exit == 0, exit == 0 ? "" : stderr.Trim());
     }
 

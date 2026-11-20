@@ -11,8 +11,12 @@ out/
 feather-cache.tsv
 *.log
 
-# .NET / WinForms
+# .NET / WPF
 gui/bin/
 gui/obj/
 bin/
 obj/
+
+# installer staging and output
+installer/stage/
+installer/output/

@@ -355,6 +355,36 @@ int wmain(int argc, wchar_t** argv) {
         std::string error;
         const auto entries = quarantine.list(error);
         if (!error.empty()) std::cerr << "warning: " << error << "\n";
+
+        if (!opt.jsonFile.empty()) {
+            std::string json = "[\n";
+            bool first = true;
+            for (const auto& e : entries) {
+                if (!first) json += ",\n";
+                json += "  {";
+                json += "\"timestamp\":\"" + jsonEscape(e.timestamp) + "\",";
+                json += "\"sha256\":\"" + jsonEscape(e.sha256) + "\",";
+                json += "\"category\":\"" + jsonEscape(e.category) + "\",";
+                json += "\"size\":" + std::to_string(e.size) + ",";
+                json += "\"originalPath\":\"" + jsonEscape(e.originalPath) + "\"}";
+                first = false;
+            }
+            json += "\n]\n";
+
+            std::error_code ec;
+            if (opt.jsonFile.has_parent_path()) {
+                fs::create_directories(opt.jsonFile.parent_path(), ec);
+            }
+            std::ofstream out(opt.jsonFile, std::ios::binary | std::ios::trunc);
+            if (!out) {
+                std::cerr << "error: cannot write " << toUtf8(opt.jsonFile)
+                          << "\n";
+                return 1;
+            }
+            out << json;
+            return 0;
+        }
+
         if (entries.empty()) {
             std::cout << "quarantine is empty (" << toUtf8(quarantineRoot)
                       << ")\n";

@@ -32,3 +32,30 @@ jobs:
           path: |
             build/Release/feather.exe
             gui/bin/Release/net8.0-windows/Feather.exe
+
+  installer:
+    runs-on: windows-latest
+    needs: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -A x64
+
+      - name: Build scanner
+        run: cmake --build build --config Release
+
+      - name: Build GUI
+        run: dotnet build gui/Feather.Gui.csproj -c Release
+
+      - name: Install Inno Setup
+        run: winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements --accept-source-agreements
+
+      - name: Build installer
+        run: pwsh -ExecutionPolicy Bypass -File installer/build.ps1
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: feather-installer
+          path: installer/output/feather-setup-*.exe

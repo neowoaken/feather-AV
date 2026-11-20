@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- **Modern WPF GUI** (`gui/`, .NET 8). Replaced the WinForms front end with a
+  dark, Malwarebytes-inspired interface: sidebar navigation (Scan / Quarantine /
+  Categories), card-based findings with severity and category badges, preselect
+  checkboxes driven by the category policy, and quarantine / allow actions.
+- **Shipping installer** (`installer/feather.iss` + `installer/build.ps1`, Inno
+  Setup 6). Self-contained .NET 8 build, ~46 MB, includes the scanner, GUI,
+  docs and rules. Installs to `Program Files\Feather`, optional PATH entry,
+  Start Menu + optional desktop shortcut. Built in CI and uploaded as an
+  artifact.
+
+### Changed
+
+- GUI target changed from WinForms to WPF (no runtime dependency beyond the
+  bundled .NET 8).
+- `Scanner.FindExecutable` now also checks `{app}\bin\feather.exe` (installed
+  layout) in addition to the development layout.
+
 ## 0.3.0
 
 ### Added
@@ -9,10 +30,11 @@
   signature names and built-in rules map onto the same vocabulary, so
   "PUA.HackTool.OnlineFix" becomes `unwanted` / `hacktool`, not a nameless
   alarm. See `docs/CATEGORIES.md`.
-- **Desktop GUI** (`gui/`, WinForms, .NET 8). Lists only flagged files, one
-  checkbox per finding, a details pane with every signal, and a category policy
-  that *preselects* rows. It runs `feather.exe` and parses its JSON; it contains
-  no detection code and cannot invent an action.
+- **Desktop GUI** (`gui/`, WPF, .NET 8). Dark, Malwarebytes-inspired theme:
+  sidebar navigation, card-based findings with severity/category badges,
+  preselect checkboxes driven by the category policy, quarantine and allow
+  actions. It runs `feather.exe` and parses its JSON; it contains no detection
+  code and cannot invent an action.
 - **Quarantine** (`feather quarantine`, `quarantine-list`, `restore`). Copy,
   re-hash the copy, then remove the original. Objects are stored as
   `<sha256>.q`; every action is recorded in `manifest.tsv`. Nothing in a scan
