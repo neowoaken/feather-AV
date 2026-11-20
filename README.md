@@ -6,10 +6,27 @@ Most scanners collapse "this is a game fix" and "this is a stealer" into a singl
 red popup and delete both. feather keeps them apart, tells you what it actually
 found, and never deletes anything.
 
-> **Status: alpha.** The detection engine, CLI scanner and the optional ClamAV
-> adapter work today. The kernel driver does not exist yet — see
-> [roadmap](#roadmap). This is a scanner, not a full antivirus, and it is not a
-> replacement for Defender.
+> **Status: alpha.** The detection engine, CLI scanner, desktop GUI, explicit
+> quarantine and the optional ClamAV adapter work today. The kernel driver does
+> not exist yet — see [roadmap](#roadmap). This is a scanner, not a full
+> antivirus, and it is not a replacement for Defender.
+
+## What it looks like
+
+Run `gui\bin\Release\net8.0-windows\Feather.exe` (or `dotnet run --project gui`):
+
+- It scans a folder and lists only what it flagged, with the **category** each
+  finding belongs to: `HackTool`, `Adware`, `PUA`, `Injector`, `Stealer`, ...
+- Every row has a checkbox. Your category policy only *preselects* rows: mark
+  `Adware` as auto-select and `HackTool` as manual, and the box state follows
+  that. You still press the button.
+- **Quarantine checked** copies the files (verifying the copy by hash) and only
+  then removes the originals. **Allow checked** writes a hash exclusion instead,
+  so the file stays where it is and stops being flagged.
+- The details pane shows every signal, its source and its reason. No verdict is
+  unexplained.
+
+Nothing is deleted by a scan. There is no silent action anywhere.
 
 ## Architecture: sources in, one verdict out
 
@@ -19,11 +36,14 @@ sources/                 each source is an adapter, not a decider
   ioc/                   known-bad SHA-256 lookup
   clamav/                optional clamd client (INSTREAM over TCP)
         |
-        v  Signal{ source, id, severity, detail }
+        v  Signal{ source, id, severity, category, detail }
 verdict/fusion            strongest signal wins; exclusions applied
         |
         v
-     Finding              one file, one tier, every reason attached
+     Finding              one file, one tier, one category, every reason attached
+        |
+        +--> CLI          text / JSON
+        +--> GUI          WinForms: checkbox per finding, category policy
 ```
 
 No source controls the verdict. That is what lets ClamAV's
@@ -54,6 +74,9 @@ a ClamAV PUA deletion with a warning is the whole point.
 
 ## Verdict model
 
+Tiers describe **how sure** the scanner is. Categories describe **what kind of
+thing** it found — the part you actually need in order to decide.
+
 | Verdict | Meaning | Example | Suggested action |
 | --- | --- | --- | --- |
 | `malicious` | known-bad SHA-256, spoofed filename, or a named malware family from ClamAV | stealer, miner, ransomware | block |
@@ -61,7 +84,16 @@ a ClamAV PUA deletion with a warning is the whole point.
 | `info` | structural oddity worth noting | packed/high-entropy section, large overlay | note only |
 | `clean` | nothing known | — | — |
 
-Nothing is auto-quarantined. There is no "delete" code path yet, on purpose.
+Categories sit next to that verdict: `hacktool`, `adware`, `pua`, `packer`,
+`injector`, `dropper`, `spyware`, `stealer`, `miner`, `ransomware`, `trojan`,
+`worm`, `virus`, `suspicious`, `test`, `malware`. See
+[docs/CATEGORIES.md](docs/CATEGORIES.md) for the full mapping and the policy
+file format.
+
+A scan never quarantines anything, and there is no "delete" code path at all.
+Quarantine exists, but it is an explicit command in the CLI and a button in the
+GUI. It copies first, re-hashes the copy, and only removes the original after the
+copy verifies.
 
 ## Why cracks do not get swiped
 
@@ -87,7 +119,7 @@ See [docs/VERDICT-MODEL.md](docs/VERDICT-MODEL.md) for the full rules.
 ## Build
 
 Requirements: Windows, Visual Studio 2022 (Desktop C++ workload) or Build Tools,
-CMake 3.20+.
+CMake 3.20+, and the .NET 8 SDK for the GUI.
 
 ```powershell
 # if you do not have a C++ toolchain yet:
@@ -96,9 +128,15 @@ winget install --id Microsoft.VisualStudio.2022.BuildTools `
 
 cmake -S . -B build
 cmake --build build --config Release
+
+# GUI
+dotnet build gui/Feather.Gui.csproj -c Release
 ```
 
-The binary lands in `build/Release/feather.exe`.
+The binary lands in `build/Release/feather.exe`; the GUI in
+`gui\bin\Release\net8.0-windows\Feather.exe`. The GUI finds the scanner in
+`build\Release`, `build\Debug` or on `PATH`; `File > Locate feather.exe`
+overrides that.
 
 ## Use
 
@@ -118,6 +156,34 @@ That makes it usable in scripts and CI.
 
 Second scans are fast: unchanged files with a known verdict are skipped via a
 hash cache in `%LOCALAPPDATA%\Feather\cache.tsv`. Use `--no-cache` to disable.
+Cache entries are tied to the active source set, so enabling `--clamd` later
+does not reuse pre-ClamAV results.
+
+### The GUI
+
+```powershell
+gui\bin\Release\net8.0-windows\Feather.exe
+```
+
+Scan a folder, tick what you want gone, choose `Quarantine checked` or
+`Allow checked`. The `Categories` tab is where "Adware: auto-select,
+HackTool: ask me" is configured; it writes
+`%LOCALAPPDATA%\Feather\policy.json`. Allow-listed hashes go to
+`%LOCALAPPDATA%\Feather\allow.txt`, which is the same file format the CLI takes
+with `--allow`.
+
+### Quarantine from the CLI
+
+```powershell
+.\build\Release\feather.exe quarantine .\suspicious.exe --category adware --reason "came with an installer"
+.\build\Release\feather.exe quarantine-list
+.\build\Release\feather.exe restore <sha256>
+```
+
+Quarantine defaults to `%LOCALAPPDATA%\Feather\quarantine`; use
+`--quarantine-dir` to override it. Files are stored as `<sha256>.q`, so they are
+not executable from inside the vault, and every entry is recorded in
+`manifest.tsv` with the original path, size and category.
 
 ### Verifying it actually detects something
 
@@ -133,7 +199,9 @@ probably quarantine the file first; that is expected.
 
 ## Rules
 
-- `rules/ioc.sample.txt` — known-bad SHA-256 list. Hash-only by design.
+- `rules/ioc.sample.txt` — known-bad SHA-256 list. Hash-only by design. An
+  optional category word sits between the hash and the label:
+  `sha256 <hash> adware bundled installer`.
 - `rules/allow.sample.txt` — your exclusions. Can lower `unwanted` to `clean`,
   can **never** override `malicious`.
 
@@ -142,8 +210,9 @@ probably quarantine the file first; that is expected.
 1. The engine is OS-independent and has no driver dependency.
 2. The driver (later) contains **zero detection logic** — it is sensors and
    enforcement, nothing else.
-3. The CLI, the AMSI provider and the driver all call the same engine.
+3. The CLI, the GUI, the AMSI provider and the driver all call the same engine.
 4. An unsigned build must always remain fully usable, minus enforcement.
+5. A scan may classify. Only a person may remove.
 
 ## Roadmap
 
@@ -151,12 +220,14 @@ probably quarantine the file first; that is expected.
 - [x] CLI scanner with cache and JSON output
 - [x] Fusion layer: sources emit signals, one verdict comes out
 - [x] ClamAV adapter over clamd (optional, no GPL code in this repo)
-- [ ] MFT/USN enumeration for fast full-disk scans
+- [x] Categories (`hacktool`, `adware`, `stealer`, ...) on every finding
+- [x] Explicit, copy-then-verify quarantine with restore
+- [x] Desktop GUI: pick from the unwanted, per-category preselect policy
 - [ ] YARA adapter (libyara, per-rule severity in metadata)
+- [ ] MFT/USN enumeration for fast full-disk scans
 - [ ] AMSI provider for script coverage (`IAntimalwareProvider`) — no driver needed
 - [ ] On-access minifilter (C, WDK, signed) — calls the same engine
 - [ ] ETW-TI behavioural sensor (requires signing + MVI registration)
-- [ ] Quarantine (explicit, user-confirmed, never automatic)
 
 ## Limitations
 

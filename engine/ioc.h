@@ -7,11 +7,13 @@
 #include <unordered_map>
 
 #include "engine/sha256.h"
+#include "verdict/signal.h"
 
 namespace feather {
 
 struct IocEntry {
     Digest digest{};
+    Category category = Category::Malware;
     std::string label;
 };
 

@@ -16,21 +16,25 @@
 #endif
 
 #include "cli/cache.h"
+#include "cli/quarantine.h"
 #include "cli/walk.h"
 #include "engine/engine.h"
 
 namespace fs = std::filesystem;
 
+using feather::Category;
 using feather::Engine;
 using feather::EngineOptions;
 using feather::Finding;
 using feather::IocDatabase;
 using feather::Severity;
+using feather::categoryId;
+using feather::categoryLabel;
 using feather::severityName;
 
 namespace {
 
-constexpr const char* kVersion = "0.2.0";
+constexpr const char* kVersion = "0.3.0";
 
 struct Options {
     std::wstring command;
@@ -40,6 +44,9 @@ struct Options {
     fs::path cacheFile;
     fs::path jsonFile;
     std::optional<feather::ClamAvEndpoint> clamd;
+    fs::path quarantineDir;
+    std::string categoryId;
+    std::string reason;
     unsigned threads = 0;
     bool all = false;
     bool quiet = false;
@@ -91,6 +98,9 @@ void printUsage() {
         "usage:\n"
         "  feather scan <path> [options]\n"
         "  feather hash <path>\n"
+        "  feather quarantine <path> [--category <id>] [--reason <text>]\n"
+        "  feather restore <sha256>\n"
+        "  feather quarantine-list\n"
         "  feather version\n"
         "\n"
         "options:\n"
@@ -101,6 +111,9 @@ void printUsage() {
         "  --json <file>    write findings as JSON\n"
         "  --clamd <host:port>  add a local clamd (ClamAV) as a source\n"
         "  --threads <n>    worker threads (default: CPU count)\n"
+        "  --quarantine-dir <dir>  override the quarantine location\n"
+        "  --category <id>  category id for quarantine (hacktool, adware, ...)\n"
+        "  --reason <text>  note stored in the quarantine manifest\n"
         "  --all            also list info-level and allowed findings\n"
         "  --quiet          no progress output\n"
         "\n"
@@ -143,6 +156,17 @@ bool parseArgs(const std::vector<std::wstring>& args, Options& o,
                 return false;
             }
             o.clamd = parsed;
+        } else if (a == L"--quarantine-dir") {
+            if (!value(o.quarantineDir)) {
+                err = "--quarantine-dir needs a path";
+                return false;
+            }
+        } else if (a == L"--category") {
+            if (i + 1 >= args.size()) { err = "--category needs a value"; return false; }
+            o.categoryId = toUtf8(fs::path(args[++i]));
+        } else if (a == L"--reason") {
+            if (i + 1 >= args.size()) { err = "--reason needs a value"; return false; }
+            o.reason = toUtf8(fs::path(args[++i]));
         } else if (a == L"--threads") {
             if (i + 1 >= args.size()) { err = "--threads needs a number"; return false; }
             try {
@@ -180,12 +204,16 @@ bool parseArgs(const std::vector<std::wstring>& args, Options& o,
         o.version = true;
         return true;
     }
-    if (o.command != L"scan" && o.command != L"hash") {
+    static const std::vector<std::wstring> kCommands = {
+        L"scan", L"hash", L"quarantine", L"restore", L"quarantine-list"};
+    if (std::find(kCommands.begin(), kCommands.end(), o.command) ==
+        kCommands.end()) {
         err = "unknown command: " + toUtf8(fs::path(positional[0]));
         return false;
     }
+    if (o.command == L"quarantine-list") return true;
     if (positional.size() < 2) {
-        err = o.command == L"scan" ? "scan needs a path" : "hash needs a path";
+        err = "command needs an argument";
         return false;
     }
     o.target = fs::path(positional[1]);
@@ -221,6 +249,8 @@ std::string findingJson(const Finding& f) {
     out += "\"size\":" + std::to_string(f.size) + ",";
     out += "\"sha256\":\"" + f.sha256 + "\",";
     out += "\"verdict\":\"" + std::string(severityName(f.effectiveVerdict())) + "\",";
+    out += "\"category\":\"" + std::string(categoryId(f.category)) + "\",";
+    out += "\"categoryLabel\":\"" + std::string(categoryLabel(f.category)) + "\",";
     out += "\"suppressed\":";
     out += f.suppressed ? "true" : "false";
     out += ",";
@@ -241,7 +271,8 @@ std::string findingJson(const Finding& f) {
         if (i > 0) out += ",";
         out += "{\"source\":\"" + jsonEscape(h.source) + "\",\"id\":\"" +
                jsonEscape(h.id) + "\",\"severity\":\"" +
-               severityName(h.severity) + "\",\"weight\":" +
+               severityName(h.severity) + "\",\"category\":\"" +
+               categoryId(h.category) + "\",\"weight\":" +
                std::to_string(h.weight) + ",\"detail\":\"" +
                jsonEscape(h.detail) + "\"}";
     }
@@ -262,7 +293,11 @@ void printFindingText(const Finding& f) {
     const Severity v = f.effectiveVerdict();
     const char* label = f.suppressed ? "allowed" : severityName(v);
 
-    std::cout << "[" << label << "] " << toUtf8(f.path) << "\n";
+    std::cout << "[" << label;
+    if (f.category != Category::None) {
+        std::cout << " / " << categoryLabel(f.category);
+    }
+    std::cout << "] " << toUtf8(f.path) << "\n";
     if (!f.error.empty()) {
         std::cout << "    error: " << f.error << "\n";
         return;
@@ -275,7 +310,8 @@ void printFindingText(const Finding& f) {
     }
     for (const auto& h : f.hits) {
         std::cout << "    - [" << h.source << "] " << h.id << " ("
-                  << severityName(h.severity) << "): " << h.detail << "\n";
+                  << severityName(h.severity) << ", " << categoryId(h.category)
+                  << "): " << h.detail << "\n";
     }
     for (const auto& w : f.warnings) {
         std::cout << "    warning: " << w << "\n";
@@ -307,6 +343,61 @@ int wmain(int argc, wchar_t** argv) {
     }
     if (opt.help) {
         printUsage();
+        return 0;
+    }
+
+    const fs::path quarantineRoot = opt.quarantineDir.empty()
+        ? feather::cli::Quarantine::defaultRoot()
+        : opt.quarantineDir;
+    feather::cli::Quarantine quarantine(quarantineRoot);
+
+    if (opt.command == L"quarantine-list") {
+        std::string error;
+        const auto entries = quarantine.list(error);
+        if (!error.empty()) std::cerr << "warning: " << error << "\n";
+        if (entries.empty()) {
+            std::cout << "quarantine is empty (" << toUtf8(quarantineRoot)
+                      << ")\n";
+            return 0;
+        }
+        for (const auto& e : entries) {
+            std::cout << e.timestamp << "  " << e.category << "  " << e.size
+                      << "  " << e.sha256 << "  " << e.originalPath << "\n";
+        }
+        std::cout << entries.size() << " item(s) in "
+                  << toUtf8(quarantineRoot) << "\n";
+        return 0;
+    }
+
+    if (opt.command == L"restore") {
+        fs::path restored;
+        std::string error;
+        if (!quarantine.restore(toUtf8(opt.target), restored, error)) {
+            std::cerr << "error: " << error << "\n";
+            return 1;
+        }
+        std::cout << "restored " << toUtf8(restored) << "\n";
+        return 0;
+    }
+
+    if (opt.command == L"quarantine") {
+        const Engine engine;
+        const Finding finding = engine.analyze(opt.target);
+        if (!finding.error.empty()) {
+            std::cerr << "error: " << finding.error << "\n";
+            return 1;
+        }
+        std::string category = opt.categoryId;
+        if (category.empty()) category = categoryId(finding.category);
+
+        std::string error;
+        if (!quarantine.add(opt.target, finding.sha256, category, opt.reason,
+                            error)) {
+            std::cerr << "error: " << error << "\n";
+            return 1;
+        }
+        std::cout << "quarantined " << toUtf8(opt.target) << "  " << finding.sha256
+                  << "  " << category << "\n";
         return 0;
     }
 

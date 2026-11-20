@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- **Categories.** Every finding carries a `Category` (`hacktool`, `adware`,
+  `pua`, `injector`, `stealer`, `trojan`, ...) alongside its tier. ClamAV
+  signature names and built-in rules map onto the same vocabulary, so
+  "PUA.HackTool.OnlineFix" becomes `unwanted` / `hacktool`, not a nameless
+  alarm. See `docs/CATEGORIES.md`.
+- **Desktop GUI** (`gui/`, WinForms, .NET 8). Lists only flagged files, one
+  checkbox per finding, a details pane with every signal, and a category policy
+  that *preselects* rows. It runs `feather.exe` and parses its JSON; it contains
+  no detection code and cannot invent an action.
+- **Quarantine** (`feather quarantine`, `quarantine-list`, `restore`). Copy,
+  re-hash the copy, then remove the original. Objects are stored as
+  `<sha256>.q`; every action is recorded in `manifest.tsv`. Nothing in a scan
+  calls it. See `docs/QUARANTINE.md`.
+- `--category` and `--reason` flags, and an optional category word in IOC files
+  (`sha256 <hash> adware label`).
+- JSON gained `category`, `categoryLabel` and `hits[].category`; text output
+  shows the category next to the verdict.
+- GUI build and artifact upload in CI; smoke test covers categories, quarantine
+  and restore.
+
+### Changed
+
+- `Signal` and `RuleHit` carry `Category`; `Finding` exposes the category of the
+  strongest signal.
+- `Engine::applyExclusions` is public so cached findings can be re-filtered
+  without re-reading the file.
+
 ## 0.2.0
 
 ### Added

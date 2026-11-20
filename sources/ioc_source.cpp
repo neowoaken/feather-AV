@@ -8,7 +8,8 @@ SourceResult IocSource::inspect(const FileFacts& facts) const {
 
     if (const IocEntry* entry = database_->find(facts.digest)) {
         result.signals.push_back(
-            Signal{"ioc", "hash.known_bad", Severity::Malicious, 100,
+            Signal{"ioc", "hash.known_bad", Severity::Malicious, entry->category,
+                   100,
                    entry->label.empty() ? "matches known-bad SHA-256"
                                         : ("known bad: " + entry->label)});
     }

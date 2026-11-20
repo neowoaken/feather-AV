@@ -21,6 +21,7 @@ struct RuleHit {
     std::string source;  // which source produced this signal
     std::string id;
     Severity severity = Severity::Info;
+    Category category = Category::Unknown;
     int weight = 0;
     std::string detail;
 };
@@ -32,6 +33,8 @@ struct Finding {
     std::string sha256;
 
     Severity verdict = Severity::None;
+    // Category of the strongest signal, for display and policy decisions.
+    Category category = Category::None;
     std::vector<RuleHit> hits;
 
     // Sources that failed for this file. Non-fatal: other sources still ran.

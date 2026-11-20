@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(feather VERSION 0.2.0 LANGUAGES CXX)
+project(feather VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,6 +40,7 @@ add_executable(feather
   cli/main.cpp
   cli/walk.cpp
   cli/cache.cpp
+  cli/quarantine.cpp
 )
 target_link_libraries(feather PRIVATE feather_engine)
 

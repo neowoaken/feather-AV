@@ -21,3 +21,14 @@ jobs:
 
       - name: ClamAV adapter test (mock clamd)
         run: pwsh -File tests/clamd.ps1
+
+      - name: Build GUI
+        run: dotnet build gui/Feather.Gui.csproj -c Release
+
+      - name: Upload scanner and GUI
+        uses: actions/upload-artifact@v4
+        with:
+          name: feather-windows
+          path: |
+            build/Release/feather.exe
+            gui/bin/Release/net8.0-windows/Feather.exe

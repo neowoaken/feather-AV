@@ -57,11 +57,27 @@ IocDatabase IocDatabase::loadFromFile(const std::filesystem::path& path,
         std::getline(ss, label);
         label = trim(label);
 
+        // Optional category prefix: "sha256 <hash> [category] [label...]".
+        Category category = Category::Malware;
+        if (!label.empty()) {
+            std::istringstream labelStream(label);
+            std::string first;
+            labelStream >> first;
+            Category parsed;
+            if (parseCategory(first, parsed)) {
+                category = parsed;
+                std::string rest;
+                std::getline(labelStream, rest);
+                label = trim(rest);
+            }
+        }
+
         for (char& c : value) {
             if (c >= 'A' && c <= 'F') c = static_cast<char>(c - 'A' + 'a');
         }
 
         IocEntry entry;
+        entry.category = category;
         entry.label = label;
         db.entries_[value] = std::move(entry);
     }

@@ -104,7 +104,10 @@ Finding Engine::analyze(const std::filesystem::path& path) const {
     f.hits.reserve(signals.size());
     for (const auto& signal : signals) {
         f.hits.push_back(RuleHit{signal.source, signal.id, signal.severity,
-                                 signal.weight, signal.detail});
+                                 signal.category, signal.weight, signal.detail});
+        if (signal.severity == f.verdict && f.category == Category::None) {
+            f.category = signal.category;
+        }
     }
 
     // ---- user exclusions ----------------------------------------------------

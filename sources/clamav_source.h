@@ -31,7 +31,12 @@ private:
     ClamAvEndpoint endpoint_;
 };
 
-// Maps a ClamAV signature name to a tier. Exposed for tests.
-Severity classifyClamSignature(const std::string& signature);
+struct ClamClassification {
+    Severity severity = Severity::Malicious;
+    Category category = Category::Malware;
+};
+
+// Maps a ClamAV signature name to a tier and a category. Exposed for tests.
+ClamClassification classifyClamSignature(const std::string& signature);
 
 } // namespace feather

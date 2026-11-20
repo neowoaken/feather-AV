@@ -26,10 +26,10 @@ bool inSet(const std::unordered_set<std::string>& set, const std::string& value)
 
 SourceResult RulesSource::inspect(const FileFacts& facts) const {
     SourceResult result;
-    auto add = [&result](std::string id, Severity sev, int weight,
-                         std::string detail) {
-        result.signals.push_back(
-            Signal{"rules", std::move(id), sev, weight, std::move(detail)});
+    auto add = [&result](std::string id, Severity sev, Category category,
+                         int weight, std::string detail) {
+        result.signals.push_back(Signal{"rules", std::move(id), sev, category,
+                                        weight, std::move(detail)});
     };
 
     // ---- filename ---------------------------------------------------------
@@ -38,7 +38,7 @@ SourceResult RulesSource::inspect(const FileFacts& facts) const {
 
     // U+202E RIGHT-TO-LEFT OVERRIDE, used to disguise extensions.
     if (name.find("\xE2\x80\xAE") != std::string::npos) {
-        add("name.rtl_override", Severity::Malicious, 90,
+        add("name.rtl_override", Severity::Malicious, Category::Suspicious, 90,
             "right-to-left override in filename (extension spoofing)");
     }
 
@@ -60,7 +60,7 @@ SourceResult RulesSource::inspect(const FileFacts& facts) const {
                 const std::string inner =
                     nameLower.substr(prev + 1, last - prev - 1);
                 if (inSet(dangerous, ext) && inSet(bait, inner)) {
-                    add("name.double_extension", Severity::Unwanted, 30,
+                    add("name.double_extension", Severity::Unwanted, Category::Suspicious, 30,
                         "double extension: " + inner + "." + ext);
                 }
             }
@@ -74,7 +74,7 @@ SourceResult RulesSource::inspect(const FileFacts& facts) const {
             std::ifstream head(facts.path, std::ios::binary);
             char mz[2] = {};
             if (head.read(mz, 2) && mz[0] == 'M' && mz[1] == 'Z') {
-                add("pe.malformed", Severity::Info, 2,
+                add("pe.malformed", Severity::Info, Category::Suspicious, 2,
                     "starts with MZ but PE headers are malformed");
             }
         }
@@ -82,7 +82,7 @@ SourceResult RulesSource::inspect(const FileFacts& facts) const {
     }
 
     if (pe.hasWritableExecutableSection) {
-        add("pe.rwx_section", Severity::Unwanted, 15,
+        add("pe.rwx_section", Severity::Unwanted, Category::Suspicious, 15,
             "section is both writable and executable");
     }
 
@@ -97,18 +97,18 @@ SourceResult RulesSource::inspect(const FileFacts& facts) const {
         // Intentionally Info only. Cracked/packed games trip this, and
         // "packed therefore malicious" is exactly the false positive we exist
         // to avoid.
-        add("pe.high_entropy_exec", Severity::Info, 5,
+        add("pe.high_entropy_exec", Severity::Info, Category::Packer, 5,
             "high-entropy executable section (packed or compressed)");
     }
 
     if (pe.overlaySize > (1u << 20) && pe.overlaySize > facts.size / 4) {
-        add("pe.large_overlay", Severity::Info, 3,
+        add("pe.large_overlay", Severity::Info, Category::Suspicious, 3,
             "large appended overlay: " + std::to_string(pe.overlaySize) +
                 " bytes");
     }
 
     if (pe.hasNoImports && !pe.sections.empty()) {
-        add("pe.no_imports", Severity::Info, 4,
+        add("pe.no_imports", Severity::Info, Category::Packer, 4,
             "no import table (unusual, often packed)");
     }
 
@@ -131,12 +131,12 @@ SourceResult RulesSource::inspect(const FileFacts& facts) const {
                                    imports("ntallocatevirtualmemory");
 
     if (canWriteRemote && (canCreateRemote || canAllocateRemote)) {
-        add("pe.injection_capable", Severity::Unwanted, 20,
+        add("pe.injection_capable", Severity::Unwanted, Category::Injector, 20,
             "imports capable of injecting code into other processes");
     }
 
     if (imports("minidumpwritedump")) {
-        add("pe.process_dump_capable", Severity::Unwanted, 15,
+        add("pe.process_dump_capable", Severity::Unwanted, Category::HackTool, 15,
             "can dump process memory (credential-dumping capability)");
     }
 

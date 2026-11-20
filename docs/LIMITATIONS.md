@@ -80,6 +80,11 @@ that `malicious` can stay quiet.
 - Open-source detection logic is readable by malware authors. Rule IDs and
   details are therefore kept generic; do not expect them to stay secret, and do
   not put anything sensitive in the repository.
+- **Quarantine is not encrypted** and lives in your profile. Write access to
+  `%LOCALAPPDATA%\Feather\quarantine` means read access to the vaulted bytes.
+  Treat it as "out of the way", not as a secure sample store.
+- The GUI is a front end, not a service. It runs one scan at a time, has no
+  tray icon, no watch mode and no scheduler.
 
 ## Legal
 

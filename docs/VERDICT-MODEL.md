@@ -20,33 +20,46 @@ hashes), and optionally `clamav` (a local clamd daemon). Sources never pick the
 tier themselves; `verdict/fusion.h` takes the maximum. That indirection is what
 makes third-party engines usable without inheriting their judgement.
 
+## Tier vs. category
+
+Tier says how sure. Category says what kind. Fusion keeps the category of the
+strongest signal, so a `PUA.HackTool.*` signature is reported as
+`unwanted` + `hacktool`, not as a nameless warning. The full category list, the
+mapping tables and the GUI policy file are in
+[CATEGORIES.md](CATEGORIES.md).
+
+Categories cannot change a tier. That separation is deliberate: it lets the GUI
+say "Adware: preselect, HackTool: ask me" without letting user preference touch
+the distinction between a trojan and a trainer.
+
 ## Third-party engine mapping
 
 ClamAV reports a signature name; feather translates it into a tier:
 
-| ClamAV signature | Tier | Reasoning |
-|---|---|---|
-| `PUA.*`, `Tool.*`, any name containing `HackTool` | `unwanted` | This is the "possibly unwanted" category feather refuses to condemn |
-| `Heuristics.*` | `unwanted` | A heuristic is a suspicion, not proof |
-| `Win.Trojan.*`, `Win.Ransomware.*`, `Eicar-*`, other named families | `malicious` | Named family detections are the strong signal signature engines are good at |
+| ClamAV signature | Tier | Category | Reasoning |
+|---|---|---|---|
+| `PUA.*`, `Tool.*`, any name containing `HackTool` | `unwanted` | `pua` / `hacktool` | This is the "possibly unwanted" category feather refuses to condemn |
+| `Heuristics.*` | `unwanted` | `suspicious` | A heuristic is a suspicion, not proof |
+| `Adware` | `unwanted` | `adware` | Unwanted, but not at the same level as a named family |
+| `Win.Trojan.*`, `Win.Ransomware.*`, `Eicar-*`, other named families | `malicious` | `trojan` / `ransomware` / `test` / ... | Named family detections are the strong signal signature engines are good at |
 
 If clamd is unreachable the file is still scanned by the other sources and the
 failure is reported as a per-file warning. Silence is never treated as "clean".
 
-## Rule catalogue (v0.1)
+## Rule catalogue
 
-| ID | Severity | Weight | Signal |
-|---|---|---|---|
-| `hash.known_bad` | malicious | 100 | SHA-256 present in the IOC database |
-| `name.rtl_override` | malicious | 90 | U+202E right-to-left override in the filename (extension spoofing) |
-| `name.double_extension` | unwanted | 30 | dangerous extension behind a bait extension, e.g. `invoice.pdf.exe` |
-| `pe.injection_capable` | unwanted | 20 | imports that can write and execute code in another process |
-| `pe.process_dump_capable` | unwanted | 15 | `MiniDumpWriteDump` (credential-dumping capability) |
-| `pe.rwx_section` | unwanted | 15 | a section that is both writable and executable |
-| `pe.high_entropy_exec` | info | 5 | high-entropy executable section (packed/compressed) |
-| `pe.no_imports` | info | 4 | no import table |
-| `pe.large_overlay` | info | 3 | large appended data after the last section |
-| `pe.malformed` | info | 2 | starts with `MZ` but headers do not parse |
+| ID | Severity | Category | Weight | Signal |
+|---|---|---|---|---|
+| `hash.known_bad` | malicious | from IOC entry | 100 | SHA-256 present in the IOC database |
+| `name.rtl_override` | malicious | suspicious | 90 | U+202E right-to-left override in the filename (extension spoofing) |
+| `name.double_extension` | unwanted | suspicious | 30 | dangerous extension behind a bait extension, e.g. `invoice.pdf.exe` |
+| `pe.injection_capable` | unwanted | injector | 20 | imports that can write and execute code in another process |
+| `pe.process_dump_capable` | unwanted | hacktool | 15 | `MiniDumpWriteDump` (credential-dumping capability) |
+| `pe.rwx_section` | unwanted | suspicious | 15 | a section that is both writable and executable |
+| `pe.high_entropy_exec` | info | packer | 5 | high-entropy executable section (packed/compressed) |
+| `pe.no_imports` | info | packer | 4 | no import table |
+| `pe.large_overlay` | info | suspicious | 3 | large appended data after the last section |
+| `pe.malformed` | info | suspicious | 2 | starts with `MZ` but headers do not parse |
 
 Weights are display/ordering metadata; the verdict is driven by severity, so a
 single `info` hit can never promote a file to `unwanted`.
@@ -87,8 +100,8 @@ Those are behavioural, and behaviour is where the real separation will happen
 `allow.sample.txt` can suppress `unwanted` and below, with a recorded reason
 that is shown in the output.
 
-It cannot suppress `malicious`. This is enforced in `Engine::analyze` by
-checking `verdict != Severity::Malicious` before consulting exclusions. If a
+It cannot suppress `malicious`. This is enforced in `Engine::applyExclusions` by
+returning early for `Severity::Malicious` before consulting exclusions. If a
 "trusted game folder" could whitelist a known stealer, the tier model would be
 worthless.
 

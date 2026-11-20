@@ -113,7 +113,7 @@ std::string readReply(socket_t s) {
 
 } // namespace
 
-Severity classifyClamSignature(const std::string& signature) {
+ClamClassification classifyClamSignature(const std::string& signature) {
     const std::string s = lower(signature);
 
     auto startsWith = [&s](const char* prefix) {
@@ -123,13 +123,29 @@ Severity classifyClamSignature(const std::string& signature) {
         return s.find(needle) != std::string::npos;
     };
 
-    // Not evidence of malice, so it must not become a hard verdict.
-    if (startsWith("pua.") || startsWith("tool.") || contains("hacktool") ||
-        contains(".tool.") || contains("unwanted") || contains("heur")) {
-        return Severity::Unwanted;
+    // Suspicion categories first: they must never be reported as a family.
+    if (contains("eicar")) return {Severity::Malicious, Category::Test};
+    if (contains("hacktool") || startsWith("tool.") || contains(".tool.")) {
+        return {Severity::Unwanted, Category::HackTool};
     }
+    if (contains("adware")) return {Severity::Unwanted, Category::Adware};
+    if (startsWith("pua.")) return {Severity::Unwanted, Category::Pua};
+    if (contains("heur")) return {Severity::Unwanted, Category::Suspicious};
 
-    return Severity::Malicious;
+    // Named families.
+    if (contains("ransom")) return {Severity::Malicious, Category::Ransomware};
+    if (contains("miner")) return {Severity::Malicious, Category::Miner};
+    if (contains("stealer")) return {Severity::Malicious, Category::Stealer};
+    if (contains("spyware") || contains("keylog")) {
+        return {Severity::Malicious, Category::Spyware};
+    }
+    if (contains("dropper")) return {Severity::Malicious, Category::Dropper};
+    if (contains("inject")) return {Severity::Malicious, Category::Injector};
+    if (contains("worm")) return {Severity::Malicious, Category::Worm};
+    if (contains("virus")) return {Severity::Malicious, Category::Virus};
+    if (contains("trojan")) return {Severity::Malicious, Category::Trojan};
+
+    return {Severity::Malicious, Category::Malware};
 }
 
 ClamAvSource::ClamAvSource(ClamAvEndpoint endpoint) : endpoint_(std::move(endpoint)) {}
@@ -229,9 +245,10 @@ SourceResult ClamAvSource::inspect(const FileFacts& facts) const {
                       kFound) == 0) {
         const std::string signature =
             trim(reply.substr(0, reply.size() - std::strlen(kFound)));
+        const ClamClassification cls = classifyClamSignature(signature);
         result.signals.push_back(
-            Signal{"clamav", "clamav.signature", classifyClamSignature(signature),
-                   80, "ClamAV: " + signature});
+            Signal{"clamav", "clamav.signature", cls.severity, cls.category, 80,
+                   "ClamAV: " + signature});
         return result;
     }
 

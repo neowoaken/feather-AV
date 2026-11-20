@@ -7,13 +7,13 @@
                  |  hash / PE / fusion         |
                  +--------------+--------------+
                                 |
-        +-----------------------+------------------------+
-        |                       |                        |
-   +----v----+           +------v------+          +------v------+
-   |   CLI   |           | AMSI provider|          |  minifilter |
-   | scanner |           |  (planned)   |          |  (planned)  |
-   | C++/std |           |   C++ / COM  |          |   C / WDK   |
-   +---------+           +--------------+          +-------------+
+      +-----------------+-----------+--------------+--------------+
+      |                 |           |              |              |
+ +----v----+     +------v------+ +--v--------+ +---v------+ +-----v------+
+ |   CLI   |     |     GUI     | |    AMSI   | |minifilter| |  ETW-TI    |
+ | scanner |     |  WinForms   | | (planned) | |(planned) | | (planned)  |
+ | C++/std |     |   .NET 8    | | C++ / COM | |  C / WDK | | user-mode  |
+ +---------+     +-------------+ +-----------+ +----------+ +------------+
 
 Detection sources (behind the engine):
 
@@ -36,11 +36,13 @@ Detection sources (behind the engine):
 | `sources/rules_source.*` | Built-in heuristics. |
 | `sources/ioc_source.*` | Hash lookup. |
 | `sources/clamav_source.*` | clamd `INSTREAM` client and ClamAV-to-tier classification. |
-| `verdict/signal.h` | `Severity` and `Signal` — the only thing sources may produce. |
+| `verdict/signal.h` | `Severity`, `Category` and `Signal` — the only thing sources may produce. |
 | `verdict/fusion.h` | Aggregation: strongest signal wins. |
 | `cli/walk.*` | File enumeration. Does not follow directory symlinks. |
 | `cli/cache.*` | `(path, size, mtime, source scope) -> (sha256, verdict)` cache. |
-| `cli/main.cpp` | Argument parsing, thread pool, text/JSON reporting. |
+| `cli/quarantine.*` | Copy-then-verify vault, manifest, restore. Never called by a scan. |
+| `cli/main.cpp` | Argument parsing, thread pool, text/JSON reporting, commands. |
+| `gui/` | WinForms front end. Parses the CLI's JSON and shells out for actions; contains no detection logic. |
 
 ## Invariants
 
@@ -68,7 +70,7 @@ enumerate -> [cache hit? reuse verdict]
           -> stream file through SHA-256
           -> read bounded prefix, parse PE
           -> run every source -> signals
-          -> fuse (strongest signal wins)
+          -> fuse (strongest signal wins; its category is kept)
           -> apply exclusions (unless malicious)
           -> cache write
           -> report
@@ -87,6 +89,13 @@ order is deterministic. The cache is read concurrently (immutable during the
 scan) and written single-threaded afterwards. The ClamAV source opens one socket
 per file and closes it immediately, so no shared connection state exists across
 workers.
+
+## GUI boundary
+
+`gui/` is deliberately dumb: it runs `feather.exe scan --json <temp>`, reads the
+array, and calls `feather quarantine` for each checked row. There is no second
+detection implementation to drift out of sync, and the GUI cannot invent a
+verdict or remove anything the CLI would refuse.
 
 ## Future: where the driver fits
 

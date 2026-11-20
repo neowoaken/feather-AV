@@ -10,3 +10,9 @@ out/
 *.obj
 feather-cache.tsv
 *.log
+
+# .NET / WinForms
+gui/bin/
+gui/obj/
+bin/
+obj/
