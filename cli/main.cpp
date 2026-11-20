@@ -34,7 +34,7 @@ using feather::severityName;
 
 namespace {
 
-constexpr const char* kVersion = "0.3.0";
+constexpr const char* kVersion = "0.3.2";
 
 struct Options {
     std::wstring command;

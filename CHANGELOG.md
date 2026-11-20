@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+### Changed
+
+- **GUI redesigned** to a Malwarebytes-inspired dark WPF interface:
+  sidebar navigation, card-based findings with severity/category badges, a big
+  "Scan now" button that scans the C drive by default, a "..." menu for
+  scanning a specific folder, and a feather logo in the sidebar.
+- Installer version bumped to 0.3.2.
+
 ## 0.3.1
 
 ### Added

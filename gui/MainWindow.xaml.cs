@@ -34,6 +34,7 @@ public partial class MainWindow : Window
         BuildCategories();
         LoadScanner();
 
+        PathBox.Text = @"C:\";
         ShowScan();
     }
 
@@ -142,14 +143,29 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnMoreOptions(object sender, RoutedEventArgs e)
+    {
+        FolderPanel.Visibility = FolderPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
     private async void OnScan(object sender, RoutedEventArgs e)
     {
-        var folder = PathBox.Text.Trim();
-        if (!Directory.Exists(folder))
+        string folder;
+        if (FolderPanel.Visibility == Visibility.Visible)
         {
-            MessageBox.Show(this, "Pick an existing folder first.", "feather",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
+            folder = PathBox.Text.Trim();
+            if (!Directory.Exists(folder))
+            {
+                MessageBox.Show(this, "Pick an existing folder first.", "feather",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+        }
+        else
+        {
+            folder = @"C:\";
         }
 
         SetBusy(true);

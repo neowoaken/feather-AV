@@ -3,7 +3,7 @@
 ;   "C:\Users\<you>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" feather.iss
 
 #define MyAppName "feather"
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "0.3.2"
 #define MyAppPublisher "neowoaken"
 #define MyAppURL "https://github.com/neowoaken/feather-AV"
 
