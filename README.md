@@ -146,7 +146,7 @@ powershell -ExecutionPolicy Bypass -File installer/build.ps1
 
 Requires Inno Setup 6 (installed automatically by the script's lookup; if
 missing, install with `winget install JRSoftware.InnoSetup`). Output:
-`installer/output/feather-setup-0.3.3.exe` (~46 MB, self-contained).
+`installer/output/feather-setup-0.3.4.exe` (~46 MB, self-contained).
 
 ## Use
 
@@ -178,9 +178,12 @@ gui\bin\Release\net8.0-windows\Feather.exe
 The **Dashboard** opens to a Quick Scan card, Protection Advisor and Security
 Status panels, and Protection Updates. Click **Scan** there to scan drive C
 immediately. The **Scan** page has the same big Scan button plus a `...` menu
-for a specific folder. Tick what you want gone, then choose
-`Quarantine selected` or `Allow selected`. The `Categories` tab is where
-"Adware: auto-select, HackTool: ask me" is configured; it writes
+for a specific folder. Tick what you want gone, then choose **Remove
+selected** or **Allow selected**. Malware (`malicious` verdict) is wiped
+permanently — overwritten with zeros before deletion — while `unwanted` and
+`info` findings are quarantined and stay restorable. Nothing is removed
+without this explicit confirmation. The `Categories` tab is where "Adware:
+auto-select, HackTool: ask me" is configured; it writes
 `%LOCALAPPDATA%\Feather\policy.json`. Allow-listed hashes go to
 `%LOCALAPPDATA%\Feather\allow.txt`, which is the same file format the CLI takes
 with `--allow`.
@@ -188,12 +191,32 @@ with `--allow`.
 Feather AV is an on-demand classifier: the dashboard never claims real-time,
 ransomware or web protection that this build does not provide.
 
-### Quarantine from the CLI
+### Kernel monitor (optional)
+
+`driver/featherflt` is a read-only minifilter that logs executable-file activity
+to a circular buffer. It does **not** block or delete anything; it exists so
+future builds can correlate on-demand findings with what actually ran.
+
+```powershell
+# Build (needs WDK 10.0.26100 + VS 2022 C++ tools):
+powershell -ExecutionPolicy Bypass -File driver\build-driver.ps1
+
+# Activate (elevated; enables test signing and may require a reboot):
+powershell -ExecutionPolicy Bypass -File driver\install-driver.ps1
+
+# Verify after activation:
+fltmc filters
+```
+
+### Quarantine / wipe from the CLI
 
 ```powershell
 .\build\Release\feather.exe quarantine .\suspicious.exe --category adware --reason "came with an installer"
 .\build\Release\feather.exe quarantine-list
 .\build\Release\feather.exe restore <sha256>
+
+# Permanent removal — overwrites with zeros, then deletes, and audits to wipe-log.tsv:
+.\build\Release\feather.exe wipe .\confirmed-malware.exe --reason "confirmed by user"
 ```
 
 Quarantine defaults to `%LOCALAPPDATA%\Feather\quarantine`; use

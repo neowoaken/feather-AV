@@ -143,6 +143,17 @@ public sealed class Scanner
         return (exit == 0, exit == 0 ? "" : stderr.Trim());
     }
 
+    public async Task<(bool Ok, string Message)> WipeAsync(
+        string file, CancellationToken cancellationToken = default)
+    {
+        var args = new List<string>
+        {
+            "wipe", file, "--reason", "wiped from Feather GUI: malicious verdict"
+        };
+        var (exit, _, stderr) = await RunAsync(args, cancellationToken);
+        return (exit == 0, exit == 0 ? "" : stderr.Trim());
+    }
+
     public void AddAllow(string sha256, string note)
     {
         if (string.IsNullOrEmpty(_allow))

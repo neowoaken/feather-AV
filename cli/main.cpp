@@ -34,7 +34,7 @@ using feather::severityName;
 
 namespace {
 
-constexpr const char* kVersion = "0.3.3";
+constexpr const char* kVersion = "0.3.4";
 
 struct Options {
     std::wstring command;
@@ -91,6 +91,20 @@ fs::path defaultCachePath() {
     return fs::path("feather-cache.tsv");
 }
 
+fs::path defaultWipeLogPath() {
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH] = {};
+    const DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) {
+        return fs::path(std::wstring(buf, n)) / L"Feather" / L"wipe-log.tsv";
+    }
+#endif
+    if (const char* home = std::getenv("HOME")) {
+        return fs::path(home) / ".local" / "share" / "feather" / "wipe-log.tsv";
+    }
+    return fs::path("feather-wipe-log.tsv");
+}
+
 void printUsage() {
     std::cout <<
         "feather " << kVersion << " -- lightweight file scanner\n"
@@ -101,6 +115,7 @@ void printUsage() {
         "  feather quarantine <path> [--category <id>] [--reason <text>]\n"
         "  feather restore <sha256>\n"
         "  feather quarantine-list\n"
+        "  feather wipe <path> [--reason <text>]\n"
         "  feather version\n"
         "\n"
         "options:\n"
@@ -205,7 +220,7 @@ bool parseArgs(const std::vector<std::wstring>& args, Options& o,
         return true;
     }
     static const std::vector<std::wstring> kCommands = {
-        L"scan", L"hash", L"quarantine", L"restore", L"quarantine-list"};
+        L"scan", L"hash", L"quarantine", L"restore", L"quarantine-list", L"wipe"};
     if (std::find(kCommands.begin(), kCommands.end(), o.command) ==
         kCommands.end()) {
         err = "unknown command: " + toUtf8(fs::path(positional[0]));
@@ -428,6 +443,76 @@ int wmain(int argc, wchar_t** argv) {
         }
         std::cout << "quarantined " << toUtf8(opt.target) << "  " << finding.sha256
                   << "  " << category << "\n";
+        return 0;
+    }
+
+    if (opt.command == L"wipe") {
+        // Explicit, user-initiated permanent removal. Nothing in a scan calls
+        // this; only a deliberate `feather wipe` invocation reaches here.
+        std::error_code ec;
+        if (!fs::is_regular_file(opt.target, ec) || ec) {
+            std::cerr << "error: not a regular file: " << toUtf8(opt.target) << "\n";
+            return 1;
+        }
+
+#ifdef _WIN32
+        SetFileAttributesW(opt.target.c_str(), FILE_ATTRIBUTE_NORMAL);
+#endif
+
+        const Engine engine;
+        const Finding finding = engine.analyze(opt.target);
+        if (!finding.error.empty()) {
+            std::cerr << "error: " << finding.error << "\n";
+            return 1;
+        }
+        const std::string sha = finding.sha256;
+        const std::uintmax_t size = fs::file_size(opt.target, ec);
+        if (ec) {
+            std::cerr << "error: could not determine file size\n";
+            return 1;
+        }
+
+        {
+            std::ofstream out(opt.target, std::ios::binary | std::ios::trunc);
+            if (!out) {
+                std::cerr << "error: could not open file for wiping\n";
+                return 1;
+            }
+            std::vector<char> zeros(1024 * 1024, 0);
+            std::uintmax_t left = size;
+            while (left > 0) {
+                const std::size_t chunk = static_cast<std::size_t>(
+                    std::min<std::uintmax_t>(left, zeros.size()));
+                out.write(zeros.data(), static_cast<std::streamsize>(chunk));
+                left -= chunk;
+            }
+            out.flush();
+            if (!out) {
+                std::cerr << "error: overwrite failed; original left in place\n";
+                return 1;
+            }
+        }
+
+        if (!fs::remove(opt.target, ec) || ec) {
+            std::cerr << "error: overwrite succeeded but delete failed: "
+                      << ec.message() << "\n";
+            return 1;
+        }
+
+        try {
+            const fs::path log = defaultWipeLogPath();
+            fs::create_directories(log.parent_path());
+            std::ofstream audit(log, std::ios::app);
+            if (audit) {
+                audit << std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())
+                      << "\t" << sha << "\t" << toUtf8(opt.target) << "\t"
+                      << opt.reason << "\n";
+            }
+        } catch (...) {
+            // Auditing must never turn a completed wipe into a failure.
+        }
+
+        std::cout << "wiped " << toUtf8(opt.target) << "  " << sha << "\n";
         return 0;
     }
 

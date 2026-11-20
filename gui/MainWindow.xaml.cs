@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -516,35 +517,69 @@ public partial class MainWindow : Window
         var selected = _resultRows.Where(r => r.Box.IsChecked == true).ToList();
         if (selected.Count == 0)
         {
-            MessageBox.Show(this, "Tick the files you want to quarantine first.",
+            MessageBox.Show(this, "Tick the files you want to remove first.",
                 "Nothing selected", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
-        var confirm = MessageBox.Show(this,
-            $"Copy {selected.Count} file(s) into quarantine and remove the originals?\n\n" +
-            "Each file is re-hashed before the original is touched, and it can be " +
-            "restored from the Quarantine page.",
-            "Quarantine", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+        // Malware is wiped permanently; everything else stays restorable in quarantine.
+        var malicious = selected.Where(r => r.Finding.Verdict == "malicious").ToList();
+        var restorable = selected.Where(r => r.Finding.Verdict != "malicious").ToList();
+
+        var details = new StringBuilder();
+        if (malicious.Count > 0)
+        {
+            details.AppendLine($"{malicious.Count} malicious file(s) will be permanently " +
+                               "wiped (overwritten with zeros, not recoverable).");
+        }
+        if (restorable.Count > 0)
+        {
+            details.AppendLine($"{restorable.Count} other file(s) will be quarantined and " +
+                               "can be restored from the Quarantine page.");
+        }
+        details.AppendLine("\nContinue?");
+
+        var confirm = MessageBox.Show(this, details.ToString(),
+            "Remove selected", MessageBoxButton.YesNo, MessageBoxImage.Warning,
             MessageBoxResult.No);
 
         if (confirm != MessageBoxResult.Yes) return;
 
         SetBusy(true);
-        var removed = 0;
+        var wiped = 0;
+        var quarantined = 0;
         var failures = new List<string>();
 
-        foreach (var (box, finding) in selected)
+        void RemoveRow(CheckBox box)
+        {
+            if (box.Parent is Grid grid && grid.Parent is Border card)
+            {
+                ResultsPanel.Children.Remove(card);
+            }
+            _resultRows.RemoveAll(r => ReferenceEquals(r.Box, box));
+        }
+
+        foreach (var (box, finding) in malicious)
+        {
+            var (ok, message) = await _scanner.WipeAsync(finding.Path);
+            if (ok)
+            {
+                ++wiped;
+                RemoveRow(box);
+            }
+            else
+            {
+                failures.Add(finding.FileName + ": " + message);
+            }
+        }
+
+        foreach (var (box, finding) in restorable)
         {
             var (ok, message) = await _scanner.QuarantineAsync(finding.Path, finding.Category);
             if (ok)
             {
-                ++removed;
-                if (box.Parent is Grid grid && grid.Parent is Border card)
-                {
-                    ResultsPanel.Children.Remove(card);
-                }
-                _resultRows.RemoveAll(r => ReferenceEquals(r.Box, box));
+                ++quarantined;
+                RemoveRow(box);
             }
             else
             {
@@ -554,14 +589,14 @@ public partial class MainWindow : Window
 
         SetBusy(false);
         SetFindingsCount(_resultRows.Count);
-        Status.Text = $"Quarantined {removed} file(s).";
+        Status.Text = $"Wiped {wiped} malicious file(s); quarantined {quarantined} file(s).";
         RefreshDashboard();
 
         if (failures.Count > 0)
         {
             MessageBox.Show(this,
                 "Some files were left alone:\n\n" + string.Join("\n", failures.Take(10)),
-                "Quarantine incomplete", MessageBoxButton.OK, MessageBoxImage.Warning);
+                "Removal incomplete", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

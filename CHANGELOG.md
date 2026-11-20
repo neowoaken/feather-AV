@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.4
+
+### Changed
+
+- **Malware is now wiped, not quarantined.** The GUI's Remove action permanently
+  overwrites files with a `malicious` verdict with zeros before deleting them;
+  `unwanted`/`info` findings remain restorable in quarantine. The CLI gained an
+  explicit `feather wipe <path>` command with an audit log at
+  `%LOCALAPPDATA%\Feather\wipe-log.tsv`. Wiping is never automatic — it only
+  happens on a deliberate user action.
+- The supplied Feather AV wordmark is now the sidebar logo at its native
+  proportions, and the dashboard text fits without clipping.
+
+### Added
+
+- **`featherflt` kernel minifilter** (`driver/`): a read-only filesystem driver
+  that logs executable-file creates/writes to a circular buffer for user-mode
+  consumers. It never blocks, modifies, or deletes files.
+- `driver/install-driver.ps1` activates the driver: enables test signing, signs
+  and trusts the binary, registers the auto-start service, and reports whether
+  a reboot is needed. Requires elevation; WDK 10.0.26100 is needed to rebuild it.
+
 ## 0.3.3
 
 ### Changed

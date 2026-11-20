@@ -1,0 +1,43 @@
+; featherflt - read-only filesystem minifilter
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=Filter
+ClassGuid={8EC4DFA4-84BE-4de5-9bb9-97c7d1a6f6f1}
+Provider=%Feather%
+DriverVer=11/20/2026,0.3.4.0
+CatalogFile=featherflt.cat
+PnpLockDown=1
+
+[DefaultInstall]
+OptionDesc=%SvcDesc%
+CopyFiles=DriverFiles
+
+[DefaultInstall.Services]
+AddService=featherflt,,Feather.Service
+
+[DestinationDirs]
+DriverFiles=12
+
+[DriverFiles]
+featherflt.sys,,,0x00000001
+
+[Feather.Service]
+DisplayName=%SvcDesc%
+ServiceType=2
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\featherflt.sys
+LoadOrderGroup="FSFilter Activity Monitor"
+Dependencies=FltMgr
+
+[SourceDisksFiles]
+featherflt.sys=1
+
+[SourceDisksNames]
+1=%DiskName%,,
+
+[Strings]
+Feather="Feather"
+SvcDesc="Feather AV kernel monitor"
+DiskName="Feather AV driver disk"

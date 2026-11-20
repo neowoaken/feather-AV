@@ -24,8 +24,9 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Margin="22,22,20,8">
-                    <Image Source="Assets/feather-logo.png" Height="104"
+                    <Image Source="Assets/feather-logo.png" Width="204"
                            HorizontalAlignment="Left" Stretch="Uniform"
+                           Margin="2,4,0,0"
                            RenderOptions.BitmapScalingMode="HighQuality"/>
                 </StackPanel>
 
@@ -105,7 +106,7 @@
                 <StackPanel Margin="36,30,36,40">
                     <TextBlock Text="Dashboard" Style="{StaticResource PageTitle}"/>
                     <TextBlock Style="{StaticResource MutedText}" Margin="0,7,0,0"
-                               Text="Feather AV classifies what it finds. Nothing is deleted unless you choose to quarantine it."/>
+                               Text="Feather AV classifies what it finds. Malware is wiped only when you choose to remove it; other findings stay restorable."/>
 
                     <Border Style="{StaticResource Card}" Margin="0,24,0,0" Padding="24">
                         <Grid>
@@ -279,7 +280,8 @@
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <Button x:Name="QuarantineButton" Content="Quarantine selected"
+                            <Button x:Name="QuarantineButton" Content="Remove selected"
+                                    ToolTip="Wipes malware permanently; quarantines other findings"
                                     Style="{StaticResource DangerButton}" Click="OnQuarantineChecked"/>
                             <Button x:Name="AllowButton" Content="Allow selected"
                                     Style="{StaticResource ButtonBase}" Margin="10,0,0,0"
@@ -348,7 +350,7 @@
                         <StackPanel>
                             <TextBlock Text="About Feather AV" Style="{StaticResource SectionTitle}"/>
                             <TextBlock Style="{StaticResource MutedText}" Margin="0,8,0,0"
-                                       Text="Version 0.3.3  |  MIT licensed  |  On-demand scanning only"/>
+                                       Text="Version 0.3.4  |  MIT licensed  |  On-demand scanning only"/>
                             <TextBlock Style="{StaticResource MutedText}" Margin="0,6,0,0"
                                        Text="Classification, not condemnation. You decide what leaves your device."/>
                         </StackPanel>
