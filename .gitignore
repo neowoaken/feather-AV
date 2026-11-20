@@ -1,0 +1,12 @@
+build/
+out/
+.vs/
+.vscode/
+*.user
+*.suo
+*.db
+*.pdb
+*.ilk
+*.obj
+feather-cache.tsv
+*.log

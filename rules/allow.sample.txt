@@ -1,0 +1,21 @@
+# feather -- user exclusions (sample)
+#
+# These are YOUR decisions, not the scanner's. Two forms:
+#
+#   sha256 <64 hex chars> [note]   trust one exact file
+#   path   <glob>         [note]   trust a path pattern
+#
+# Globs are case-insensitive, `*` matches anything (including separators),
+# `?` matches one character.
+#
+# IMPORTANT: an exclusion can lower "unwanted" to "clean", but it can NEVER
+# override "malicious". A file that matches a known-bad hash stays known-bad
+# even if a path rule covers it. That is the entire point of having tiers.
+
+# Example: a game fix you have decided to keep. It will still be reported as
+# "malicious" (not "allowed") if its hash ever appears in a known-bad list.
+path C:\Games\*                       game fix - reviewed by me
+path D:\Library\SteamLibrary\*        game library
+
+# Example: a specific file you trust by hash.
+# sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  my own tool

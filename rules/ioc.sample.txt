@@ -1,0 +1,16 @@
+# feather -- known-bad hash list (sample)
+#
+# Format:
+#   sha256 <64 hex chars> [label]
+#
+# Only cryptographic hashes belong here. Do NOT add filenames, paths, packer
+# names or "this looks suspicious" entries: those are the signals that cause
+# false positives on legitimate tools, and they cannot be verified.
+#
+# This sample contains the EICAR anti-malware test file, which is harmless by
+# design and is the standard way to check that a scanner is wired up.
+#
+# Get the file itself from https://www.eicar.org/download/eicar.com.txt
+# and confirm it is reported as malicious.
+
+sha256 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f EICAR test file
