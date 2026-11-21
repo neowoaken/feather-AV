@@ -5,10 +5,12 @@ is not marketing.
 
 ## What feather is not
 
-- **Not an antivirus.** No real-time protection, no driver, no AMSI, no cloud.
-  It cannot stop malware from running. It looks at files you ask it to look at.
+- **Not a full antivirus.** There is no AMSI, no cloud reputation, no emulator
+  and no behavioural engine. The optional kernel filter checks executable opens
+  against static rules; it does not watch what a running process does.
 - **Not a Defender replacement.** Defender has a decade of telemetry, an
-  emulator, a cloud backend and a signed kernel driver. Keep it enabled.
+  emulator, a cloud backend and a properly signed kernel driver. Keep it enabled.
+  Feather's driver is self-signed and only loads with Secure Boot disabled.
 - **Not a guarantee.** `clean` means "none of the rules fired", not "safe".
 
 ## Static analysis cannot prove intent
@@ -23,9 +25,11 @@ In particular:
   "packed" as evidence.
 - **Signed malware** (stolen certificates) will pass, because signatures are not
   a trust signal here.
-- **Scripts** (PowerShell, JS, VBS, LNK) are barely inspected at all until the
-  AMSI provider exists.
+- **Scripts** (PowerShell, JS, VBS, LNK) are extension-matched by the filter but
+  barely inspected by the rules until an AMSI provider exists.
 - **Living-off-the-land attacks** involve no suspicious file at all.
+- **Fileless and already-running malware** never triggers an `IRP_MJ_CREATE`
+  check. The filter sees opens, not behaviour.
 
 ## Known false negatives
 
@@ -70,6 +74,27 @@ that `malicious` can stay quiet.
 - ClamAV's PUA/HackTool/Heuristic detections are deliberately downgraded to
   `unwanted`. A named trojan family stays `malicious`.
 
+## Real-time protection
+
+- **Fail-open by design.** If `FeatherRT` is not running, the port is not
+  connected, or a scan cannot complete, the open is allowed and a degraded
+  counter is incremented. A blue-screen-free machine is worth more than a filter
+  that silently wedges every launch. The dashboard shows the degraded state.
+- **Trusted processes are skipped.** `feathersvc` and Feather's own executables
+  are excluded from scanning to avoid recursion. Anything running from the
+  Feather install directory is trusted for the duration of its cached PID entry.
+- **Verdicts are cached** by path, size and mtime for 10 minutes by default. A
+  file changed in place is re-scanned; a metadata-preserving rewrite within the
+  same timestamp granularity can slip through until the TTL expires.
+- **Only executable-looking extensions are checked.** Documents, archives and
+  other data files are not scanned on access.
+- **Quarantine is not a kill switch.** A process that already holds a handle to a
+  file can keep using it after the file is moved. Real-time protection reduces
+  exposure; it does not clean an infected machine.
+- **Secure Boot must be off** for the self-signed driver. Test signing widens the
+  machine's trust configuration; this is a deliberate trade, not a recommendation
+  for production endpoints.
+
 ## Security of the tool itself
 
 - No code signing. Windows SmartScreen and Defender may flag the built binary,
@@ -80,11 +105,12 @@ that `malicious` can stay quiet.
 - Open-source detection logic is readable by malware authors. Rule IDs and
   details are therefore kept generic; do not expect them to stay secret, and do
   not put anything sensitive in the repository.
-- **Quarantine is not encrypted** and lives in your profile. Write access to
-  `%LOCALAPPDATA%\Feather\quarantine` means read access to the vaulted bytes.
-  Treat it as "out of the way", not as a secure sample store.
-- The GUI is a front end, not a service. It runs one scan at a time, has no
-  tray icon, no watch mode and no scheduler.
+- **Quarantine is not encrypted.** Both `%LOCALAPPDATA%\Feather\quarantine` and
+  the service's `%PROGRAMDATA%\Feather\quarantine` are plain files. Anyone who can
+  read those directories can read the vaulted bytes. Treat them as "out of the
+  way", not as a secure sample store.
+- The GUI is a front end, not the protection service. It runs one on-demand scan
+  at a time, has no tray icon and no scheduler; it reads status from `FeatherRT`.
 
 ## Legal
 

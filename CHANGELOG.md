@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- **Real-time on-access protection** (`driver/featherflt` + `service/main.cpp`).
+  The minifilter intercepts `IRP_MJ_CREATE` for executable-looking files and
+  asks the `FeatherRT` SYSTEM service for a verdict via `FltSendMessage`. A
+  `malicious` or `unwanted` verdict denies the open and the file is moved to a
+  restorable quarantine before the reply is sent. Nothing is wiped in real time.
+- The service layers the same `Engine` as the CLI: local rules + IOC list +
+  optional `clamd` over `127.0.0.1:3310`. No `libclamav` linkage; the repo stays
+  MIT. Verdicts are cached by path/size/mtime with a TTL; trusted Feather
+  processes are excluded to avoid recursive scans.
+- **Honest dashboard status**: Active / Degraded / Inactive, ClamAV state,
+  scan/block/quarantine/fail-open counters and recent blocks. A missing driver,
+  service or signature set is visible instead of being glossed over. Failure is
+  fail-open when the service is absent or a scan cannot complete.
+- **System quarantine visibility**: the GUI lists and restores both
+  `%LOCALAPPDATA%\Feather\quarantine` and the real-time service's
+  `%PROGRAMDATA%\Feather\quarantine`.
+- `tools/setup-clamav.ps1` configures an optional local-socket `clamd` and
+  downloads signatures; `driver/install-driver.ps1` now also registers and
+  starts `FeatherRT` and creates the filter instance with an AV altitude.
+- `tests/realtime.ps1` exercises the real decision/quarantine/restore path
+  without needing a loaded kernel driver.
+
+### Changed
+
+- Version bumped to 0.4.0 across CLI, CMake, installer and driver metadata.
+- On-demand GUI behaviour is unchanged: only explicit **Remove selected** wipes
+  `malicious` findings; `unwanted`/`info` stay quarantined and restorable.
+- Loading the self-signed driver now requires Secure Boot to be disabled in UEFI
+  first; the installer script reports that state instead of failing silently.
+
 ## 0.3.4
 
 ### Changed

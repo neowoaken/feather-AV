@@ -1,45 +1,35 @@
 /*
- * featherflt - minimal, read-only filesystem minifilter.
+ * featherflt - on-access filesystem minifilter for Feather AV.
  *
- * The driver observes file creates/writes and keeps a small circular log of
- * accesses to executable-looking files. It never blocks, modifies or deletes
- * anything: Feather AV remains a classifier, never an auto-remediator.
+ * On IRP_MJ_CREATE for executable-looking files the driver asks the Feather
+ * real-time service for a verdict before allowing the open. A malicious or
+ * unwanted verdict completes the create with STATUS_ACCESS_DENIED; the service
+ * moves the file to quarantine before it replies. No file is wiped by the
+ * kernel or by the service without a verdict.
  *
- * User mode can query state through the FeatherFltPort communication port.
+ * Failure policy: if the service is not connected, does not reply in time, or
+ * returns an unknown verdict, the open is ALLOWED. This keeps the machine
+ * bootable; the degraded state is counted and reported to the service so the
+ * GUI can show it instead of pretending protection is active.
  */
 
 #include <fltKernel.h>
+#include "protocol.h"
 
-#define FEATHER_PORT_NAME      L"\\FeatherFltPort"
-#define FEATHER_MAX_EVENTS     64
-#define FEATHER_PATH_MAX       520
-
-#define FEATHER_MSG_STATUS     1
-#define FEATHER_MSG_EVENTS     2
-#define FEATHER_MSG_CLEAR      3
-
-typedef struct _FEATHER_EVENT {
-    ULONG ProcessId;
-    ULONG Length;
-    WCHAR Path[FEATHER_PATH_MAX];
-} FEATHER_EVENT;
-
-typedef struct _FEATHER_STATUS {
-    ULONG Loaded;
-    ULONG EventCount;
-    ULONG Dropped;
-    ULONG Version;
-} FEATHER_STATUS;
+#define FEATHER_MAX_EVENTS 64
 
 typedef struct _FEATHER_GLOBALS {
     PFLT_FILTER Filter;
     PFLT_PORT ServerPort;
-    PFLT_PORT ClientPort;
+    PFLT_PORT ClientPort;       // guarded by Lock
+    HANDLE ServiceProcessId;    // guarded by Lock; excluded from scanning
     KSPIN_LOCK Lock;
     FEATHER_EVENT Events[FEATHER_MAX_EVENTS];
     ULONG Head;
     ULONG Count;
     ULONG Dropped;
+    ULONG Timeouts;
+    volatile LONG64 NextMessageId;
 } FEATHER_GLOBALS;
 
 static FEATHER_GLOBALS Globals;
@@ -63,26 +53,19 @@ static BOOLEAN IsExecutableExtension(_In_ PUNICODE_STRING Extension)
     return FALSE;
 }
 
-static VOID LogExecutableAccess(
-    _In_ PFLT_CALLBACK_DATA Data,
-    _In_ PCFLT_RELATED_OBJECTS FltObjects)
+static VOID RecordEvent(
+    _In_ ULONG64 MessageId,
+    _In_ HANDLE ProcessId,
+    _In_ ULONG Verdict,
+    _In_ PFLT_FILE_NAME_INFORMATION Name)
 {
-    PFLT_FILE_NAME_INFORMATION info = NULL;
-    NTSTATUS status;
     KIRQL oldIrql;
-    ULONG index;
     FEATHER_EVENT *event;
+    ULONG index;
+    ULONG bytes = Name->Name.Length;
 
-    if (FltObjects->FileObject == NULL) return;
-
-    status = FltGetFileNameInformation(Data,
-        FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &info);
-    if (!NT_SUCCESS(status)) return;
-
-    status = FltParseFileNameInformation(info);
-    if (!NT_SUCCESS(status) || !IsExecutableExtension(&info->Extension)) {
-        FltReleaseFileNameInformation(info);
-        return;
+    if (bytes > sizeof(event->Path) - sizeof(WCHAR)) {
+        bytes = sizeof(event->Path) - sizeof(WCHAR);
     }
 
     KeAcquireSpinLock(&Globals.Lock, &oldIrql);
@@ -95,16 +78,22 @@ static VOID LogExecutableAccess(
     if (Globals.Count < FEATHER_MAX_EVENTS) ++Globals.Count;
 
     event = &Globals.Events[index];
-    event->ProcessId = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
-    event->Length = info->Name.Length;
-    if (event->Length > sizeof(event->Path) - sizeof(WCHAR)) {
-        event->Length = sizeof(event->Path) - sizeof(WCHAR);
-    }
-    RtlCopyMemory(event->Path, info->Name.Buffer, event->Length);
-    event->Path[event->Length / sizeof(WCHAR)] = L'\0';
+    event->MessageId = MessageId;
+    event->ProcessId = (ULONG)(ULONG_PTR)ProcessId;
+    event->PathLength = bytes;
+    event->Verdict = Verdict;
+    RtlCopyMemory(event->Path, Name->Name.Buffer, bytes);
+    event->Path[bytes / sizeof(WCHAR)] = L'\0';
 
     KeReleaseSpinLock(&Globals.Lock, oldIrql);
-    FltReleaseFileNameInformation(info);
+}
+
+static VOID NoteDegraded(VOID)
+{
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&Globals.Lock, &oldIrql);
+    ++Globals.Timeouts;
+    KeReleaseSpinLock(&Globals.Lock, oldIrql);
 }
 
 FLT_PREOP_CALLBACK_STATUS FeatherPreCreate(
@@ -112,18 +101,94 @@ FLT_PREOP_CALLBACK_STATUS FeatherPreCreate(
     _In_ PCFLT_RELATED_OBJECTS FltObjects,
     _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
 {
-    UNREFERENCED_PARAMETER(CompletionContext);
-    LogExecutableAccess(Data, FltObjects);
-    return FLT_PREOP_SUCCESS_NO_CALLBACK;
-}
+    PFLT_FILE_NAME_INFORMATION name = NULL;
+    PFLT_PORT clientPort = NULL;
+    HANDLE servicePid = NULL;
+    FEATHER_SCAN_REQUEST request;
+    FEATHER_SCAN_REPLY reply;
+    LARGE_INTEGER timeout;
+    ULONG replyLength = sizeof(reply);
+    NTSTATUS status;
+    ULONG64 messageId;
+    KIRQL oldIrql;
 
-FLT_PREOP_CALLBACK_STATUS FeatherPreWrite(
-    _Inout_ PFLT_CALLBACK_DATA Data,
-    _In_ PCFLT_RELATED_OBJECTS FltObjects,
-    _Flt_CompletionContext_Outptr_ PVOID *CompletionContext)
-{
     UNREFERENCED_PARAMETER(CompletionContext);
-    LogExecutableAccess(Data, FltObjects);
+
+    if (FltObjects->FileObject == NULL) return FLT_PREOP_SUCCESS_NO_CALLBACK;
+    if (KeGetCurrentIrql() > APC_LEVEL) return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+    // Snapshot the service connection under the lock, then release it before
+    // FltSendMessage (which synchronises port lifetime itself).
+    KeAcquireSpinLock(&Globals.Lock, &oldIrql);
+    clientPort = Globals.ClientPort;
+    servicePid = Globals.ServiceProcessId;
+    KeReleaseSpinLock(&Globals.Lock, oldIrql);
+
+    if (clientPort == NULL) {
+        NoteDegraded();
+        return FLT_PREOP_SUCCESS_NO_CALLBACK;
+    }
+
+    // The service opens the same file to hash/scan/quarantine it. Never ask it
+    // to scan its own I/O, or we would recurse until the timeout.
+    if (servicePid != NULL && PsGetCurrentProcessId() == servicePid) {
+        return FLT_PREOP_SUCCESS_NO_CALLBACK;
+    }
+
+    status = FltGetFileNameInformation(Data,
+        FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &name);
+    if (!NT_SUCCESS(status)) return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+    status = FltParseFileNameInformation(name);
+    if (!NT_SUCCESS(status) || !IsExecutableExtension(&name->Extension)) {
+        FltReleaseFileNameInformation(name);
+        return FLT_PREOP_SUCCESS_NO_CALLBACK;
+    }
+
+    RtlZeroMemory(&request, sizeof(request));
+    messageId = (ULONG64)InterlockedIncrement64(&Globals.NextMessageId);
+    request.MessageId = messageId;
+    request.ProcessId = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+    if (Data->Iopb->Parameters.Create.SecurityContext != NULL) {
+        request.DesiredAccess =
+            Data->Iopb->Parameters.Create.SecurityContext->DesiredAccess;
+    }
+    request.PathLength = name->Name.Length;
+    if (request.PathLength > sizeof(request.Path) - sizeof(WCHAR)) {
+        request.PathLength = sizeof(request.Path) - sizeof(WCHAR);
+    }
+    RtlCopyMemory(request.Path, name->Name.Buffer, request.PathLength);
+    request.Path[request.PathLength / sizeof(WCHAR)] = L'\0';
+
+    // Relative timeout: 20 seconds. Covers a full ClamAV stream scan; a hung
+    // service degrades to fail-open rather than hanging the whole machine.
+    timeout.QuadPart = -20 * 10000000LL;
+    RtlZeroMemory(&reply, sizeof(reply));
+
+    status = FltSendMessage(Globals.Filter,
+                            &clientPort,
+                            &request, sizeof(request),
+                            &reply, &replyLength,
+                            &timeout);
+
+    if (!NT_SUCCESS(status) || replyLength < sizeof(reply)) {
+        NoteDegraded();
+        FltReleaseFileNameInformation(name);
+        return FLT_PREOP_SUCCESS_NO_CALLBACK;
+    }
+
+    if (reply.Verdict == FEATHER_VERDICT_BLOCK ||
+        reply.Verdict == FEATHER_VERDICT_QUARANTINE) {
+
+        RecordEvent(messageId, PsGetCurrentProcessId(), reply.Verdict, name);
+        FltReleaseFileNameInformation(name);
+
+        Data->IoStatus.Status = STATUS_ACCESS_DENIED;
+        Data->IoStatus.Information = 0;
+        return FLT_PREOP_COMPLETE;
+    }
+
+    FltReleaseFileNameInformation(name);
     return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
 
@@ -136,7 +201,15 @@ NTSTATUS FeatherInstanceSetup(
     UNREFERENCED_PARAMETER(FltObjects);
     UNREFERENCED_PARAMETER(Flags);
     UNREFERENCED_PARAMETER(VolumeDeviceType);
-    UNREFERENCED_PARAMETER(VolumeFilesystemType);
+    switch (VolumeFilesystemType) {
+    case FLT_FSTYPE_LANMAN:
+    case FLT_FSTYPE_WEBDAV:
+    case FLT_FSTYPE_NFS:
+    case FLT_FSTYPE_MUP:
+        return STATUS_FLT_DO_NOT_ATTACH;
+    default:
+        break;
+    }
     return STATUS_SUCCESS;
 }
 
@@ -170,18 +243,27 @@ NTSTATUS FLTAPI FeatherPortConnect(
     _In_ ULONG Length,
     _Outptr_result_maybenull_ PVOID *ConnectionPortCookie)
 {
+    KIRQL oldIrql;
     UNREFERENCED_PARAMETER(ServerCookie);
     UNREFERENCED_PARAMETER(ConnectionCookie);
     UNREFERENCED_PARAMETER(Length);
     if (ConnectionPortCookie != NULL) *ConnectionPortCookie = NULL;
+
+    KeAcquireSpinLock(&Globals.Lock, &oldIrql);
     Globals.ClientPort = ClientPort;
+    Globals.ServiceProcessId = PsGetCurrentProcessId();
+    KeReleaseSpinLock(&Globals.Lock, oldIrql);
     return STATUS_SUCCESS;
 }
 
 VOID FLTAPI FeatherPortDisconnect(_In_opt_ PVOID PortCookie)
 {
+    KIRQL oldIrql;
     UNREFERENCED_PARAMETER(PortCookie);
+    KeAcquireSpinLock(&Globals.Lock, &oldIrql);
     Globals.ClientPort = NULL;
+    Globals.ServiceProcessId = NULL;
+    KeReleaseSpinLock(&Globals.Lock, oldIrql);
 }
 
 NTSTATUS FLTAPI FeatherPortMessage(
@@ -205,11 +287,11 @@ NTSTATUS FLTAPI FeatherPortMessage(
     *ReturnLength = 0;
 
     if (kind == FEATHER_MSG_CLEAR) {
-        KIRQL oldIrql;
         KeAcquireSpinLock(&Globals.Lock, &oldIrql);
         Globals.Head = 0;
         Globals.Count = 0;
         Globals.Dropped = 0;
+        Globals.Timeouts = 0;
         KeReleaseSpinLock(&Globals.Lock, oldIrql);
         return STATUS_SUCCESS;
     }
@@ -219,11 +301,14 @@ NTSTATUS FLTAPI FeatherPortMessage(
         if (OutputBuffer == NULL || OutputBufferLength < sizeof(status)) {
             return STATUS_BUFFER_TOO_SMALL;
         }
+        RtlZeroMemory(&status, sizeof(status));
         status.Loaded = 1;
-        status.Version = 1;
+        status.Version = FEATHER_PROTOCOL_VERSION;
         KeAcquireSpinLock(&Globals.Lock, &oldIrql);
         status.EventCount = Globals.Count;
         status.Dropped = Globals.Dropped;
+        status.Timeouts = Globals.Timeouts;
+        status.ServiceConnected = (Globals.ClientPort != NULL) ? 1 : 0;
         KeReleaseSpinLock(&Globals.Lock, oldIrql);
         RtlCopyMemory(OutputBuffer, &status, sizeof(status));
         *ReturnLength = sizeof(status);
@@ -231,7 +316,6 @@ NTSTATUS FLTAPI FeatherPortMessage(
     }
 
     if (kind == FEATHER_MSG_EVENTS) {
-        KIRQL oldIrql;
         ULONG i, n;
         if (OutputBuffer == NULL) return STATUS_INVALID_PARAMETER;
         KeAcquireSpinLock(&Globals.Lock, &oldIrql);
@@ -240,7 +324,8 @@ NTSTATUS FLTAPI FeatherPortMessage(
             ULONG src = (Globals.Head + i) % FEATHER_MAX_EVENTS;
             ULONG offset = i * sizeof(FEATHER_EVENT);
             if (offset + sizeof(FEATHER_EVENT) > OutputBufferLength) break;
-            RtlCopyMemory((PUCHAR)OutputBuffer + offset, &Globals.Events[src], sizeof(FEATHER_EVENT));
+            RtlCopyMemory((PUCHAR)OutputBuffer + offset, &Globals.Events[src],
+                          sizeof(FEATHER_EVENT));
         }
         *ReturnLength = i * sizeof(FEATHER_EVENT);
         KeReleaseSpinLock(&Globals.Lock, oldIrql);
@@ -252,7 +337,6 @@ NTSTATUS FLTAPI FeatherPortMessage(
 
 const FLT_OPERATION_REGISTRATION Callbacks[] = {
     { IRP_MJ_CREATE, 0, FeatherPreCreate, NULL },
-    { IRP_MJ_WRITE,  0, FeatherPreWrite,  NULL },
     { IRP_MJ_OPERATION_END }
 };
 

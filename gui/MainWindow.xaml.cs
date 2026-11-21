@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Ellipse = System.Windows.Shapes.Ellipse;
 
 namespace Feather.Gui;
@@ -19,6 +20,10 @@ public partial class MainWindow : Window
         "Feather");
     private readonly string _policyPath;
     private readonly string _allowPath;
+    private readonly string _localQuarantineRoot;
+    private readonly string _systemQuarantineRoot;
+    private readonly DispatcherTimer _realtimeTimer;
+    private string _realtimeAdvisor = "Checking real-time status...";
 
     private readonly List<(CheckBox Box, Finding Finding)> _resultRows = new();
     private readonly List<(string Sha256, Button RestoreButton)> _quarantineRows = new();
@@ -35,6 +40,12 @@ public partial class MainWindow : Window
 
         _policyPath = Path.Combine(_configDir, "policy.json");
         _allowPath = Path.Combine(_configDir, "allow.txt");
+        _localQuarantineRoot = Path.Combine(_configDir, "quarantine");
+        _systemQuarantineRoot = Path.Combine(Scanner.SystemConfigDir, "quarantine");
+
+        _realtimeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _realtimeTimer.Tick += (_, _) => _ = RefreshRealtimeAsync();
+        _realtimeTimer.Start();
 
         LoadPolicy();
         BuildCategories();
@@ -42,6 +53,7 @@ public partial class MainWindow : Window
         LoadScanner();
         RefreshDashboard();
         ShowDashboard();
+        _ = RefreshRealtimeAsync();
     }
 
     // ------------------------------------------------------------- navigation
@@ -147,8 +159,11 @@ public partial class MainWindow : Window
             ready ? "Ready to scan drive C" : "Engine not found - see Settings",
             ready ? Res("SuccessBrush") : Res("DangerBrush"));
         AddAdvisorRow("Real-time protection",
-            "Not included in this build",
-            Res("MutedBrush"));
+            _realtimeAdvisor,
+            _realtimeAdvisor.StartsWith("Active", StringComparison.Ordinal)
+                ? Res("SuccessBrush")
+                : _realtimeAdvisor.StartsWith("Inactive", StringComparison.Ordinal)
+                    ? Res("MutedBrush") : Res("WarnBrush"));
         AddAdvisorRow("Quarantine",
             $"{_quarantineCount} file(s) held, restorable anytime",
             _quarantineCount > 0 ? Res("WarnBrush") : Res("SuccessBrush"));
@@ -159,11 +174,11 @@ public partial class MainWindow : Window
         StatusHeadline.Text = ready ? "Scanner ready" : "Engine required";
         StatusGlyph.Fill = ready ? Res("SuccessBrush") : Res("DangerBrush");
         StatusNote.Text = ready
-            ? "On-demand scanning is available. Real-time protection is not part of this build."
+            ? "On-demand scanning is available. Real-time state is shown in the card below."
             : "Locate feather.exe in Settings to enable scanning.";
 
         StatusDetails.Children.Clear();
-        AddStatusDetail("Mode", "Classify only. You decide every action.");
+        AddStatusDetail("Mode", "On-demand: you decide. Real-time: block + quarantine detections.");
         AddStatusDetail("Engine", ready ? Path.GetFileName(_enginePath ?? "") : "missing");
         AddStatusDetail("Definitions", DefinitionsText());
 
@@ -229,12 +244,14 @@ public partial class MainWindow : Window
         catch { return 0; }
     }
 
-    private static int CountQuarantine()
+    private int CountQuarantine()
     {
-        var manifest = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Feather", "quarantine", "manifest.tsv");
-        return Math.Max(0, CountEntries(manifest) - 1);
+        int total = 0;
+        foreach (var root in new[] { _localQuarantineRoot, _systemQuarantineRoot })
+        {
+            total += Math.Max(0, CountEntries(Path.Combine(root, "manifest.tsv")));
+        }
+        return total;
     }
 
     private static string? FindDefinitionsFile()
@@ -267,6 +284,96 @@ public partial class MainWindow : Window
                   "Update this file to add indicators. Feather never downloads rules silently.",
             "Protection updates", MessageBoxButton.OK, MessageBoxImage.Information);
     }
+
+    // ------------------------------------------------------------- real-time
+
+    private async Task RefreshRealtimeAsync()
+    {
+        RealtimeStatus? status = null;
+        var events = new List<RealtimeEvent>();
+        try
+        {
+            status = await _scanner.RealtimeStatusAsync();
+            events = await _scanner.RealtimeEventsAsync();
+        }
+        catch
+        {
+            // A missing or locked status file simply means "not reporting".
+        }
+
+        if (status is null ||
+            !status.Service.Equals("running", StringComparison.OrdinalIgnoreCase))
+        {
+            RtStatusLabel.Text = "Inactive - service not reporting";
+            RtStatusLabel.Foreground = Res("MutedBrush");
+            RtDetailLabel.Text = "Install FeatherRT and load featherflt to enable on-access protection.";
+            RtStatsLabel.Text = "";
+            _realtimeAdvisor = "Inactive - service not reporting";
+        }
+        else
+        {
+            bool connected = status.Filter.Equals("connected", StringComparison.OrdinalIgnoreCase);
+            bool clamUp = status.Clamav.Equals("reachable", StringComparison.OrdinalIgnoreCase);
+            bool degraded = status.FailOpen > 0 || !clamUp;
+
+            if (!connected)
+            {
+                RtStatusLabel.Text = "Inactive - kernel filter not connected";
+                RtStatusLabel.Foreground = Res("WarnBrush");
+                RtDetailLabel.Text = "The service is running but featherflt is not loaded. Open protection is not being checked.";
+                _realtimeAdvisor = "Inactive - kernel filter not connected";
+            }
+            else if (degraded)
+            {
+                RtStatusLabel.Text = "Degraded - check engine sources";
+                RtStatusLabel.Foreground = Res("WarnBrush");
+                RtDetailLabel.Text = $"ClamAV: {status.Clamav} ({status.Endpoint}). Local rules: {status.Rules}.";
+                _realtimeAdvisor = "Degraded - some checks unavailable";
+            }
+            else
+            {
+                RtStatusLabel.Text = "Active - ClamAV + local rules";
+                RtStatusLabel.Foreground = Res("SuccessBrush");
+                RtDetailLabel.Text = $"ClamAV: {status.Clamav} ({status.Endpoint}). Local rules: {status.Rules}.";
+                _realtimeAdvisor = "Active - ClamAV + local rules";
+            }
+
+            RtStatsLabel.Text = $"{status.Scans} scan(s)  |  {status.Blocks} blocked  |  " +
+                                $"{status.Quarantines} quarantined  |  {status.FailOpen} fail-open  |  " +
+                                $"updated {status.Updated}";
+            if (!string.IsNullOrEmpty(status.LastAction))
+            {
+                RtStatsLabel.Text += Environment.NewLine + "Last action: " + status.LastAction;
+            }
+        }
+
+        RtEventsPanel.Children.Clear();
+        foreach (var ev in events.Take(4))
+        {
+            var blocked = ev.Action is "blocked" or "quarantined";
+            RtEventsPanel.Children.Add(new TextBlock
+            {
+                Text = $"{ev.Timestamp}   {ev.Action}   {ev.FileName}",
+                FontSize = 11,
+                Foreground = blocked ? Res("DangerBrush") : Res("MutedBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = ev.Path + Environment.NewLine + ev.Detail
+            });
+        }
+        if (events.Count == 0)
+        {
+            RtEventsPanel.Children.Add(new TextBlock
+            {
+                Text = "No on-access events yet.",
+                FontSize = 11,
+                Foreground = Res("MutedBrush")
+            });
+        }
+
+        RefreshDashboard();
+    }
+
+    private void OnRefreshRealtime(object sender, RoutedEventArgs e) => _ = RefreshRealtimeAsync();
 
     // ------------------------------------------------------------------ settings
 
@@ -639,16 +746,24 @@ public partial class MainWindow : Window
         QuarantinePanel.Children.Clear();
         _quarantineRows.Clear();
 
-        List<QuarantineItem> items;
-        try
+        var items = new List<QuarantineItem>();
+        string? readError = null;
+        foreach (var root in new[] { _localQuarantineRoot, _systemQuarantineRoot })
         {
-            items = await _scanner.QuarantineListAsync();
+            try
+            {
+                items.AddRange(await _scanner.QuarantineListAsync(root));
+            }
+            catch (Exception ex)
+            {
+                readError = ex.Message;
+            }
         }
-        catch (Exception ex)
+        if (items.Count == 0 && readError != null)
         {
             QuarantinePanel.Children.Add(new TextBlock
             {
-                Text = "Could not read the quarantine: " + ex.Message,
+                Text = "Could not read the quarantine: " + readError,
                 Foreground = Res("MutedBrush")
             });
             return;
@@ -722,7 +837,7 @@ public partial class MainWindow : Window
         };
         restore.Click += async (_, _) =>
         {
-            var (ok, message) = await _scanner.RestoreAsync(item.Sha256);
+            var (ok, message) = await _scanner.RestoreAsync(item.Sha256, item.Root);
             if (ok)
             {
                 await LoadQuarantineAsync();

@@ -15,12 +15,14 @@ struct QuarantineEntry {
     std::string originalPath;
 };
 
-// Explicit, user-initiated quarantine. Nothing in a scan ever calls this.
-// Files are copied, re-hashed, verified, and only then is the original
-// removed; the stored object gets a .q extension so it cannot be executed.
+// Quarantine storage. On-demand actions use defaultRoot() (per-user), while
+// the SYSTEM real-time service uses systemRoot() so the GUI can restore its
+// findings. Files are copied, re-hashed, verified, and only then is the
+// original removed; objects get a .q extension so they cannot be executed.
 class Quarantine {
 public:
     static std::filesystem::path defaultRoot();
+    static std::filesystem::path systemRoot();
 
     explicit Quarantine(std::filesystem::path root);
 

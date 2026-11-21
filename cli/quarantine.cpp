@@ -93,6 +93,17 @@ fs::path Quarantine::defaultRoot() {
     return fs::path("feather-quarantine");
 }
 
+fs::path Quarantine::systemRoot() {
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH] = {};
+    const DWORD n = GetEnvironmentVariableW(L"PROGRAMDATA", buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) {
+        return fs::path(std::wstring(buf, n)) / L"Feather" / L"quarantine";
+    }
+#endif
+    return defaultRoot();
+}
+
 Quarantine::Quarantine(fs::path root) : root_(std::move(root)) {}
 
 fs::path Quarantine::manifestPath() const { return root_ / "manifest.tsv"; }

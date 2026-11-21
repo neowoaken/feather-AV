@@ -5,8 +5,10 @@ that deletes on its own is one bad signature away from deleting your work.
 
 ## What it guarantees
 
-1. **Nothing is quarantined by a scan.** The scanner has no path to quarantine.
-   You run `feather quarantine` or press the button in the GUI.
+1. **Nothing is quarantined by a scan.** An on-demand scan has no path to
+   quarantine. You run `feather quarantine` or press the button in the GUI. The
+   separate real-time service may quarantine a detection before an executable
+   open; it uses the same copy/verify/remove code and never wipes.
 2. **Copy, verify, then remove.** The file is copied into the vault, the copy is
    re-hashed, and the original is removed only if the copy's SHA-256 matches the
    hash the scan recorded. A failed copy leaves the original untouched.
@@ -26,8 +28,18 @@ that deletes on its own is one bad signature away from deleting your work.
     <sha256>.q            the stored bytes, hash-named
 ```
 
-Override the root with `--quarantine-dir` (CLI) or by editing the config folder
-location (GUI uses the default).
+The real-time service uses a system-wide root so detections are visible to the
+GUI even though the service runs as SYSTEM:
+
+```
+%PROGRAMDATA%\Feather\quarantine\
+  manifest.tsv
+  objects\<sha256>.q
+```
+
+Override a root with `--quarantine-dir` (CLI) or `quarantine=` in
+`%PROGRAMDATA%\Feather\realtime.conf` (service). The GUI lists both roots and
+restores from either; each row remembers which root it came from.
 
 ## Commands
 

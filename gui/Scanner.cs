@@ -17,6 +17,10 @@ public sealed class Scanner
 
     public bool Ready => !string.IsNullOrWhiteSpace(_exe) && File.Exists(_exe);
 
+    public static string SystemConfigDir => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "Feather");
+
     /// <summary>
     /// Last few lines the scanner printed ("scanned 399 files in 0.55s"). The
     /// JSON array only carries flagged files, so totals come from here.
@@ -111,13 +115,18 @@ public sealed class Scanner
     }
 
     public async Task<List<QuarantineItem>> QuarantineListAsync(
-        CancellationToken cancellationToken = default)
+        string? quarantineDir = null, CancellationToken cancellationToken = default)
     {
         var jsonPath = Path.Combine(Path.GetTempPath(), $"feather-q-{Guid.NewGuid():N}.json");
         try
         {
-            var (exit, _, stderr) = await RunAsync(
-                new[] { "quarantine-list", "--json", jsonPath }, cancellationToken);
+            var args = new List<string> { "quarantine-list", "--json", jsonPath };
+            if (!string.IsNullOrEmpty(quarantineDir))
+            {
+                args.Add("--quarantine-dir");
+                args.Add(quarantineDir);
+            }
+            var (exit, _, stderr) = await RunAsync(args, cancellationToken);
             if (exit != 0)
             {
                 throw new InvalidOperationException(
@@ -126,8 +135,10 @@ public sealed class Scanner
             if (!File.Exists(jsonPath)) return new List<QuarantineItem>();
             var json = await File.ReadAllTextAsync(jsonPath, cancellationToken);
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            return JsonSerializer.Deserialize<List<QuarantineItem>>(json, options)
-                   ?? new List<QuarantineItem>();
+            var items = JsonSerializer.Deserialize<List<QuarantineItem>>(json, options)
+                        ?? new List<QuarantineItem>();
+            foreach (var item in items) item.Root = quarantineDir ?? "";
+            return items;
         }
         finally
         {
@@ -136,11 +147,57 @@ public sealed class Scanner
     }
 
     public async Task<(bool Ok, string Message)> RestoreAsync(
-        string sha256, CancellationToken cancellationToken = default)
+        string sha256, string? quarantineDir = null,
+        CancellationToken cancellationToken = default)
     {
-        var (exit, _, stderr) = await RunAsync(
-            new[] { "restore", sha256 }, cancellationToken);
+        var args = new List<string> { "restore", sha256 };
+        if (!string.IsNullOrEmpty(quarantineDir))
+        {
+            args.Add("--quarantine-dir");
+            args.Add(quarantineDir);
+        }
+        var (exit, _, stderr) = await RunAsync(args, cancellationToken);
         return (exit == 0, exit == 0 ? "" : stderr.Trim());
+    }
+
+    public async Task<RealtimeStatus?> RealtimeStatusAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var file = Path.Combine(SystemConfigDir, "realtime-status.json");
+        if (!File.Exists(file)) return null;
+        try
+        {
+            var json = await File.ReadAllTextAsync(file, cancellationToken);
+            return JsonSerializer.Deserialize<RealtimeStatus>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch { return null; }
+    }
+
+    public async Task<List<RealtimeEvent>> RealtimeEventsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var file = Path.Combine(SystemConfigDir, "realtime-events.jsonl");
+        var events = new List<RealtimeEvent>();
+        if (!File.Exists(file)) return events;
+        try
+        {
+            var lines = await File.ReadAllLinesAsync(file, cancellationToken);
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    var item = JsonSerializer.Deserialize<RealtimeEvent>(line, options);
+                    if (item != null) events.Add(item);
+                }
+                catch { /* keep reading; one malformed line is not fatal */ }
+            }
+        }
+        catch { }
+        events.Reverse();
+        return events;
     }
 
     public async Task<(bool Ok, string Message)> WipeAsync(

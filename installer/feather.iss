@@ -3,7 +3,7 @@
 ;   "C:\Users\<you>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" feather.iss
 
 #define MyAppName "feather"
-#define MyAppVersion "0.3.4"
+#define MyAppVersion "0.4.0"
 #define MyAppPublisher "neowoaken"
 #define MyAppURL "https://github.com/neowoaken/feather-AV"
 
@@ -43,6 +43,10 @@ Name: "{group}\Feather"; Filename: "{app}\Feather.exe"; Comment: "feather deskto
 Name: "{group}\Uninstall feather"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Feather"; Filename: "{app}\Feather.exe"; Tasks: desktopicon
 
+; Inno Setup has no [Services] section: the helper repairs/recreates and starts
+; FeatherRT, including on upgrades. The kernel filter is installed separately by
+; driver\install-driver.ps1 because it needs test signing.
+
 [Registry]
 ; Append {app} to the system PATH when requested.
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; \
@@ -66,4 +70,10 @@ begin
 end;
 
 [Run]
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\install-service.ps1"" -Action install"; Flags: runhidden; StatusMsg: "Installing Feather real-time service..."
 Filename: "{app}\Feather.exe"; Description: "Launch feather"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; sc.exe is always available; the staged helper may already be gone.
+Filename: "{sys}\sc.exe"; Parameters: "stop FeatherRT"; Flags: runhidden; RunOnceId: "FeatherRTStop"
+Filename: "{sys}\sc.exe"; Parameters: "delete FeatherRT"; Flags: runhidden; RunOnceId: "FeatherRTDelete"

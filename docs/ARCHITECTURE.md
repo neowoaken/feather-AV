@@ -10,10 +10,18 @@
       +-----------------+-----------+--------------+--------------+
       |                 |           |              |              |
  +----v----+     +------v------+ +--v--------+ +---v------+ +-----v------+
- |   CLI   |     |     GUI     | |    AMSI   | |minifilter| |  ETW-TI    |
- | scanner |     |     WPF     | | (planned) | |(planned) | | (planned)  |
- | C++/std |     |   .NET 8    | | C++ / COM | |  C / WDK | | user-mode  |
- +---------+     +-------------+ +-----------+ +----------+ +------------+
+ |   CLI   |     |     GUI     | |    AMSI   | |feathersvc| |  ETW-TI    |
+ | scanner |     |     WPF     | | (planned) | | C++ / WDK| | (planned)  |
+ | C++/std |     |   .NET 8    | | C++ / COM | | SYSTEM   | | user-mode  |
+ +---------+     +-------------+ +-----------+ +-----^----+ +------------+
+                                                  |
+                                         FltSendMessage / reply
+                                                  |
+                                           +------+------+
+                                           | featherflt  |
+                                           | C / WDK     |
+                                           | minifilter  |
+                                           +-------------+
 
 Detection sources (behind the engine):
 
@@ -42,14 +50,19 @@ Detection sources (behind the engine):
 | `cli/cache.*` | `(path, size, mtime, source scope) -> (sha256, verdict)` cache. |
 | `cli/quarantine.*` | Copy-then-verify vault, manifest, restore. Never called by a scan. |
 | `cli/main.cpp` | Argument parsing, thread pool, text/JSON reporting, commands. |
-| `gui/` | WPF front end (.NET 8). Dark, Malwarebytes-inspired theme. Parses the CLI's JSON and shells out for actions; contains no detection logic. |
+| `gui/` | WPF front end (.NET 8). Dark, Malwarebytes-inspired theme. Parses the CLI's JSON and shells out for actions; contains no detection logic. Reads `FeatherRT` status/events and lists both quarantine roots. |
+| `driver/featherflt/protocol.h` | Shared kernel/user wire format: scan request, reply, event and status records. |
+| `driver/featherflt/featherflt.c` | Minifilter: `IRP_MJ_CREATE` pre-op → verdict request → allow or `STATUS_ACCESS_DENIED`. No detection logic, no file deletion. |
+| `service/main.cpp` | `FeatherRT` SYSTEM service: receives verdict requests, calls `Engine::analyze`, quarantines detections, caches verdicts, publishes status/events. |
+| `tools/setup-clamav.ps1` | Optional local-socket `clamd` setup; no GPL code is linked into the product. |
 
 ## Invariants
 
 These are enforced by review, and breaking them is a bug:
 
 1. **No detection logic outside `sources/` and `verdict/`.** The CLI prints, the
-   cache stores, the driver (later) senses. None of them decide.
+   cache stores, the filter enforces and the service orchestrates. None of them
+   decide what a signal means.
 2. **Sources never decide a verdict.** They emit `Signal`s. Fusion owns the
    tier. This is what makes reclassification of third-party engines possible.
 3. **No OS dependency in `engine/` or `verdict/`** beyond `std::filesystem`. It
@@ -95,17 +108,34 @@ workers.
 `gui/` is deliberately dumb: it runs `feather.exe scan --json <temp>`, reads the
 array, and calls `feather quarantine` for each checked row. There is no second
 detection implementation to drift out of sync, and the GUI cannot invent a
-verdict or remove anything the CLI would refuse.
+verdict or remove anything the CLI would refuse. For real time it only *reads*
+`%PROGRAMDATA%\Feather\realtime-status.json` and `realtime-events.jsonl`; it
+never controls the filter.
 
-## Future: where the driver fits
+## On-access pipeline
 
-- **Minifilter** (`IRP_MJ_CREATE` pre-operation) asks the engine about a file
-  before it is opened, with a small verdict cache in kernel memory and a
-  user-mode service as the source of truth.
+```
+IRP_MJ_CREATE (executable-looking extension)
+  -> featherflt: FltSendMessage(FEATHER_SCAN_REQUEST)
+  -> FeatherRT:  trusted PID / cache check
+  -> Engine::analyze (rules + IOC + optional clamd)
+  -> malicious or unwanted: Quarantine::add (copy, verify, remove original)
+  -> FEATHER_SCAN_REPLY{ALLOW|BLOCK|QUARANTINE}
+  -> featherflt: FLT_PREOP_COMPLETE with STATUS_ACCESS_DENIED on block
+```
+
+If the service is missing, the port is disconnected, or the reply times out
+(20 s), the driver allows the open and counts a fail-open. The service writes
+that state to disk so the dashboard can show it. Only the service touches the
+quarantine; the kernel never deletes or modifies a file. See
+[docs/REALTIME.md](REALTIME.md).
+
+## Still future
+
 - **AMSI provider** gets script content before execution — highest
   value-per-line-of-code, and it needs no driver at all.
 - **ETW-TI consumer** supplies behavioural telemetry (remote allocation, image
   loads, APC injection) that static analysis fundamentally cannot see.
 
-All three are adapters over `feather_engine`. That is why the engine is
+Both are adapters over `feather_engine`. That is why the engine is
 OS-independent now rather than after the fact.

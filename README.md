@@ -4,12 +4,14 @@ A lightweight Windows file scanner that **classifies instead of condemning**.
 
 Most scanners collapse "this is a game fix" and "this is a stealer" into a single
 red popup and delete both. feather keeps them apart, tells you what it actually
-found, and never deletes anything.
+found, and never deletes anything behind your back.
 
 > **Status: alpha.** The detection engine, CLI scanner, desktop GUI, explicit
-> quarantine and the optional ClamAV adapter work today. The kernel driver does
-> not exist yet — see [roadmap](#roadmap). This is a scanner, not a full
-> antivirus, and it is not a replacement for Defender.
+> quarantine and the optional ClamAV adapter work today. On-access protection
+> exists too, but it needs a self-signed kernel driver: **Secure Boot must be
+> disabled** and test signing enabled before it can load. Until then feather is
+> an on-demand scanner, and the dashboard says so honestly. It is not a
+> replacement for Defender.
 
 ## What it looks like
 
@@ -26,7 +28,8 @@ Run `gui\bin\Release\net8.0-windows\Feather.exe` (or `dotnet run --project gui`)
 - The details pane shows every signal, its source and its reason. No verdict is
   unexplained.
 
-Nothing is deleted by a scan. There is no silent action anywhere.
+Nothing is deleted by a scan. The optional real-time layer quarantines (never
+wipes) a detection, and every such action is recorded and shown on the dashboard.
 
 ## Architecture: sources in, one verdict out
 
@@ -44,6 +47,10 @@ verdict/fusion            strongest signal wins; exclusions applied
         |
         +--> CLI          text / JSON
         +--> GUI          WPF dashboard: checkbox per finding, category policy
+        +--> feathersvc   SYSTEM service: verdicts for on-access opens
+                 ^
+                 | FltSendMessage / FilterReplyMessage
+        +--> featherflt   minifilter: blocks executable opens on a bad verdict
 ```
 
 No source controls the verdict. That is what lets ClamAV's
@@ -72,6 +79,11 @@ boundary honest):
 That gives you ClamAV's signature coverage and feather's classification. Replacing
 a ClamAV PUA deletion with a warning is the whole point.
 
+For real-time protection, `tools\setup-clamav.ps1` (run elevated) writes Feather's
+own `clamd.conf`/`freshclam.conf` under `%PROGRAMDATA%\Feather\clamav`, downloads
+signatures and registers `clamd` on `127.0.0.1:3310`. It is optional: without it
+the local rules still work and the dashboard shows ClamAV as unreachable.
+
 ## Verdict model
 
 Tiers describe **how sure** the scanner is. Categories describe **what kind of
@@ -90,10 +102,12 @@ Categories sit next to that verdict: `hacktool`, `adware`, `pua`, `packer`,
 [docs/CATEGORIES.md](docs/CATEGORIES.md) for the full mapping and the policy
 file format.
 
-A scan never quarantines anything, and there is no "delete" code path at all.
-Quarantine exists, but it is an explicit command in the CLI and a button in the
-GUI. It copies first, re-hashes the copy, and only removes the original after the
-copy verifies.
+A scan never quarantines anything. Quarantine is either an explicit CLI command /
+GUI button, or an automatic, restorable move by the optional real-time service.
+There is no automatic wipe: permanent deletion only happens when you explicitly
+choose **Remove selected** on a `malicious` finding or run `feather wipe`.
+Quarantine copies first, re-hashes the copy, and only removes the original after
+the copy verifies.
 
 ## Why cracks do not get swiped
 
@@ -146,7 +160,9 @@ powershell -ExecutionPolicy Bypass -File installer/build.ps1
 
 Requires Inno Setup 6 (installed automatically by the script's lookup; if
 missing, install with `winget install JRSoftware.InnoSetup`). Output:
-`installer/output/feather-setup-0.3.4.exe` (~46 MB, self-contained).
+`installer/output/feather-setup-0.4.0.exe` (~46 MB, self-contained). The installer
+ships `feathersvc.exe` and starts `FeatherRT`; the kernel driver is staged but
+must be activated separately with `driver\install-driver.ps1`.
 
 ## Use
 
@@ -188,25 +204,35 @@ auto-select, HackTool: ask me" is configured; it writes
 `%LOCALAPPDATA%\Feather\allow.txt`, which is the same file format the CLI takes
 with `--allow`.
 
-Feather AV is an on-demand classifier: the dashboard never claims real-time,
-ransomware or web protection that this build does not provide.
+The dashboard shows the **actual** real-time state: Active, Degraded or Inactive.
+It reads status written by `FeatherRT` and never claims protection that is not
+running. It also lists quarantine from both your profile and the SYSTEM service.
 
-### Kernel monitor (optional)
+### Real-time protection (optional)
 
-`driver/featherflt` is a read-only minifilter that logs executable-file activity
-to a circular buffer. It does **not** block or delete anything; it exists so
-future builds can correlate on-demand findings with what actually ran.
+`driver/featherflt` is an on-access minifilter. On an executable open it asks the
+`FeatherRT` SYSTEM service for a verdict over a private communication port. A
+`malicious` or `unwanted` verdict denies the open (`STATUS_ACCESS_DENIED`) and the
+service moves the file into `%PROGRAMDATA%\Feather\quarantine` **before** it
+replies. Nothing is wiped in real time. `info` and `clean` opens proceed.
 
 ```powershell
 # Build (needs WDK 10.0.26100 + VS 2022 C++ tools):
 powershell -ExecutionPolicy Bypass -File driver\build-driver.ps1
 
-# Activate (elevated; enables test signing and may require a reboot):
+# Activate (elevated). DISABLE SECURE BOOT IN UEFI FIRST:
 powershell -ExecutionPolicy Bypass -File driver\install-driver.ps1
 
-# Verify after activation:
+# Verify after activation (elevated):
 fltmc filters
+Get-Service FeatherRT,featherflt
 ```
+
+The script signs the driver with a local test certificate, installs the filter
+instance and starts both services. If Secure Boot is on, test signing is blocked
+and the filter will not load — the script reports that instead of pretending,
+and opens fail open until it loads. See [docs/REALTIME.md](docs/REALTIME.md) for
+configuration, the failure policy and the honest limitations.
 
 ### Quarantine / wipe from the CLI
 
@@ -220,9 +246,11 @@ fltmc filters
 ```
 
 Quarantine defaults to `%LOCALAPPDATA%\Feather\quarantine`; use
-`--quarantine-dir` to override it. Files are stored as `<sha256>.q`, so they are
-not executable from inside the vault, and every entry is recorded in
-`manifest.tsv` with the original path, size and category.
+`--quarantine-dir` to override it. The real-time service uses
+`%PROGRAMDATA%\Feather\quarantine`; the GUI shows both vaults and restores from
+either. Files are stored as `<sha256>.q`, so they are not executable from inside
+the vault, and every entry is recorded in `manifest.tsv` with the original path,
+size and category.
 
 ### Verifying it actually detects something
 
@@ -247,11 +275,11 @@ probably quarantine the file first; that is expected.
 ## Design rules
 
 1. The engine is OS-independent and has no driver dependency.
-2. The driver (later) contains **zero detection logic** — it is sensors and
-   enforcement, nothing else.
-3. The CLI, the GUI, the AMSI provider and the driver all call the same engine.
+2. The driver contains **zero detection logic** — it is enforcement, nothing else.
+3. The CLI, the GUI, `feathersvc` and the driver all use the same engine.
 4. An unsigned build must always remain fully usable, minus enforcement.
-5. A scan may classify. Only a person may remove.
+5. A scan may classify. Only a person may remove — except that the real-time
+   service may **quarantine** (never wipe) a detection before an executable open.
 
 ## Roadmap
 
@@ -266,7 +294,7 @@ probably quarantine the file first; that is expected.
 - [ ] YARA adapter (libyara, per-rule severity in metadata)
 - [ ] MFT/USN enumeration for fast full-disk scans
 - [ ] AMSI provider for script coverage (`IAntimalwareProvider`) — no driver needed
-- [ ] On-access minifilter (C, WDK, signed) — calls the same engine
+- [x] On-access minifilter (C, WDK) + verdict service — calls the same engine
 - [ ] ETW-TI behavioural sensor (requires signing + MVI registration)
 
 ## Limitations

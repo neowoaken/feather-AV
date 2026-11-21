@@ -1,11 +1,11 @@
-; featherflt - read-only filesystem minifilter
+; featherflt - on-access filesystem minifilter
 
 [Version]
 Signature="$WINDOWS NT$"
 Class=Filter
 ClassGuid={8EC4DFA4-84BE-4de5-9bb9-97c7d1a6f6f1}
 Provider=%Feather%
-DriverVer=11/20/2026,0.3.4.0
+DriverVer=11/21/2026,0.4.0.0
 CatalogFile=featherflt.cat
 PnpLockDown=1
 
@@ -28,8 +28,15 @@ ServiceType=2
 StartType=3
 ErrorControl=1
 ServiceBinary=%12%\featherflt.sys
-LoadOrderGroup="FSFilter Activity Monitor"
+LoadOrderGroup="FSFilter Anti-Virus"
 Dependencies=FltMgr
+AddReg=Feather.AddRegistry
+
+[Feather.AddRegistry]
+HKR,"Parameters","SupportedFeatures",0x00010001,0x3
+HKR,"Parameters\Instances","DefaultInstance",0x00000000,"Feather Instance"
+HKR,"Parameters\Instances\Feather Instance","Altitude",0x00000000,"328770"
+HKR,"Parameters\Instances\Feather Instance","Flags",0x00010001,0x0
 
 [SourceDisksFiles]
 featherflt.sys=1
@@ -39,5 +46,5 @@ featherflt.sys=1
 
 [Strings]
 Feather="Feather"
-SvcDesc="Feather AV kernel monitor"
+SvcDesc="Feather AV real-time filter"
 DiskName="Feather AV driver disk"

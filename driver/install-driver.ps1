@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-  Installs and activates the featherflt read-only minifilter.
+  Installs and activates the featherflt on-access minifilter.
 
   Must run elevated. It will:
     1. Enable Windows test signing (required for a self-signed driver).
@@ -10,7 +10,9 @@
     5. Register the service (auto-start) so it loads after the reboot.
     6. Report whether a reboot is still required.
 
-  The driver only observes executable file activity; it never blocks or deletes.
+  The driver denies executable opens on a malicious/unwanted verdict from the
+  FeatherRT service. The service moves detected files to a restorable quarantine;
+  it never wipes them. Disable Secure Boot in UEFI first if test signing is blocked.
 #>
 $ErrorActionPreference = 'Continue'
 
@@ -117,11 +119,42 @@ if ($existing) {
     Start-Sleep -Milliseconds 500
 }
 Write-Host 'Registering the minifilter service (auto-start)...'
-& sc.exe create $serviceName type= kernel start= auto displayname= 'Feather AV kernel monitor' binPath= $dest 2>&1 | Out-Host
-& sc.exe description $serviceName 'Read-only executable activity monitor for Feather AV' 2>&1 | Out-Null
+& sc.exe create $serviceName type= kernel start= auto displayname= 'Feather AV real-time filter' binPath= $dest 2>&1 | Out-Host
+& sc.exe description $serviceName 'On-access antivirus filter for Feather AV' 2>&1 | Out-Null
+
+# A minifilter needs a registered instance (with a unique altitude) before
+# Filter Manager will attach it to volumes. sc.exe create alone is not enough.
+$instanceRoot = "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName\Parameters\Instances"
+New-Item -Path $instanceRoot -Force | Out-Null
+New-ItemProperty -Path $instanceRoot -Name 'DefaultInstance' -Value 'Feather Instance' -Force | Out-Null
+$instanceKey = Join-Path $instanceRoot 'Feather Instance'
+New-Item -Path $instanceKey -Force | Out-Null
+New-ItemProperty -Path $instanceKey -Name 'Altitude' -Value '328770' -Force | Out-Null
+New-ItemProperty -Path $instanceKey -Name 'Flags' -Value 0 -PropertyType DWord -Force | Out-Null
+
 & sc.exe start $serviceName 2>&1 | Out-Host
 
-# --- 6. report ------------------------------------------------------------
+# --- 6. user-mode verdict service -----------------------------------------
+$appRoot = Split-Path -Parent $scriptDir
+$svcExeCandidates = @(
+    (Join-Path $appRoot 'bin\feathersvc.exe'),
+    (Join-Path $appRoot 'build\Release\feathersvc.exe')
+)
+$svcExe = $svcExeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($svcExe) {
+    $rtName = 'FeatherRT'
+    if (Get-Service -Name $rtName -ErrorAction SilentlyContinue) {
+        & sc.exe stop $rtName 2>&1 | Out-Null
+    } else {
+        & sc.exe create $rtName start= auto displayname= 'Feather AV Real-Time Protection' binPath= "`"$svcExe`"" 2>&1 | Out-Host
+    }
+    & sc.exe description $rtName 'Answers Feather AV on-access verdict requests' 2>&1 | Out-Null
+    & sc.exe start $rtName 2>&1 | Out-Host
+} else {
+    Write-Warning 'feathersvc.exe not found; the filter will fail open until it is installed.'
+}
+
+# --- 7. report ------------------------------------------------------------
 Write-Host ''
 Write-Host '--- status ---'
 $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
@@ -131,7 +164,7 @@ try { & fltmc filters 2>&1 | Select-String -Pattern 'featherflt|Filter Name' | O
 if ($secureBoot -and -not $testSigning) {
     Write-Host ''
     Write-Host 'RESULT: Driver staged but NOT loaded. Disable Secure Boot in UEFI, reboot,'
-    Write-Host 'then re-run this script as administrator to activate the kernel monitor.'
+    Write-Host 'then re-run this script as administrator to activate real-time protection.'
 } elseif ($rebootNeeded) {
     Write-Host ''
     Write-Host 'RESULT: Test signing enabled. REBOOT required; the driver will load at startup.'

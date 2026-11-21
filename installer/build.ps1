@@ -33,7 +33,13 @@ dotnet publish (Join-Path $root "gui/Feather.Gui.csproj") `
 
 New-Item -ItemType Directory -Path (Join-Path $stage "bin") -Force | Out-Null
 Copy-Item (Join-Path $root "build/Release/feather.exe") (Join-Path $stage "bin/feather.exe")
-# Optional kernel monitor: ship the driver and its activation script.
+$svcExe = Join-Path $root "build/Release/feathersvc.exe"
+if (-not (Test-Path $svcExe)) { throw "build/Release/feathersvc.exe is missing; rebuild the solution." }
+Copy-Item $svcExe (Join-Path $stage "bin/feathersvc.exe")
+New-Item -ItemType Directory -Path (Join-Path $stage "tools") -Force | Out-Null
+Copy-Item (Join-Path $root "tools/setup-clamav.ps1") (Join-Path $stage "tools/setup-clamav.ps1")
+Copy-Item (Join-Path $root "tools/install-service.ps1") (Join-Path $stage "tools/install-service.ps1")
+# Optional kernel driver: ship it and its activation script.
 $driverOut = Join-Path $root "driver\output"
 if (Test-Path (Join-Path $driverOut "featherflt.sys")) {
     New-Item -ItemType Directory -Path (Join-Path $stage "driver") -Force | Out-Null
@@ -65,4 +71,4 @@ if (-not $iscc) { throw "ISCC.exe not found. Install Inno Setup 6." }
 & $iscc (Join-Path $root "installer/feather.iss")
 if ($LASTEXITCODE -ne 0) { throw "installer build failed" }
 
-Write-Host "`nbuilt: installer/output/feather-setup-0.3.4.exe"
+Write-Host "`nbuilt: installer/output/feather-setup-0.4.0.exe"

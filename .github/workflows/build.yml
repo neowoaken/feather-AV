@@ -22,6 +22,9 @@ jobs:
       - name: ClamAV adapter test (mock clamd)
         run: pwsh -File tests/clamd.ps1
 
+      - name: Real-time decision test
+        run: pwsh -File tests/realtime.ps1
+
       - name: Build GUI
         run: dotnet build gui/Feather.Gui.csproj -c Release
 
@@ -31,6 +34,7 @@ jobs:
           name: feather-windows
           path: |
             build/Release/feather.exe
+            build/Release/feathersvc.exe
             gui/bin/Release/net8.0-windows/Feather.exe
 
   installer:

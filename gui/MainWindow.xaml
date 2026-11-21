@@ -94,7 +94,7 @@
                     <Border Height="1" Background="#FF24262B" Margin="0,0,0,14"/>
                     <TextBlock x:Name="EngineLabel" Text="engine: not found"
                                Foreground="#FF8A929E" FontSize="11" TextWrapping="Wrap"/>
-                    <TextBlock Text="classify, never auto-delete" FontSize="11"
+                    <TextBlock Text="real-time block + quarantine" FontSize="11"
                                Foreground="#FF626A76" Margin="0,6,0,0"/>
                 </StackPanel>
             </Grid>
@@ -192,8 +192,30 @@
                         </Grid>
                     </Border>
 
+                    <Border Style="{StaticResource Card}" Margin="0,18,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Real-time protection" Style="{StaticResource SectionTitle}"/>
+                                <TextBlock x:Name="RtStatusLabel" Text="Checking..."
+                                           FontSize="16" FontWeight="SemiBold" Margin="0,12,0,0"/>
+                                <TextBlock x:Name="RtDetailLabel" Style="{StaticResource MutedText}"
+                                           Margin="0,5,0,0" Text="Reading service status..."/>
+                                <TextBlock x:Name="RtStatsLabel" Style="{StaticResource MutedText}"
+                                           Margin="0,5,0,0" Text=""/>
+                                <StackPanel x:Name="RtEventsPanel" Margin="0,12,0,0"/>
+                            </StackPanel>
+                            <Button x:Name="RtRefreshButton" Grid.Column="1" Content="Refresh"
+                                    Style="{StaticResource GhostButton}" VerticalAlignment="Top"
+                                    Margin="20,0,0,0" Click="OnRefreshRealtime"/>
+                        </Grid>
+                    </Border>
+
                     <TextBlock Style="{StaticResource MutedText}" Margin="0,18,0,0"
-                               Text="Feather AV is an on-demand classifier. It does not promise real-time protection, ransomware blocking or web filtering."/>
+                               Text="Real-time protection blocks executable opens on a malicious/unwanted verdict and quarantines the file. It is only active when the kernel filter is loaded and the service is connected; see the status above."/>
                 </StackPanel>
             </ScrollViewer>
 
@@ -350,7 +372,7 @@
                         <StackPanel>
                             <TextBlock Text="About Feather AV" Style="{StaticResource SectionTitle}"/>
                             <TextBlock Style="{StaticResource MutedText}" Margin="0,8,0,0"
-                                       Text="Version 0.3.4  |  MIT licensed  |  On-demand scanning only"/>
+                                       Text="Version 0.4.0  |  MIT licensed  |  On-demand + optional real-time"/>
                             <TextBlock Style="{StaticResource MutedText}" Margin="0,6,0,0"
                                        Text="Classification, not condemnation. You decide what leaves your device."/>
                         </StackPanel>
